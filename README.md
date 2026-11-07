@@ -12,6 +12,7 @@ Um analista submete um incidente no dashboard, um modelo a correr no Ollama clas
 - [Funcionalidades](#funcionalidades)
 - [Arquitetura](#arquitetura)
 - [Fluxo de uma análise](#fluxo-de-uma-análise)
+- [Painel](#painel)
 - [Instalação com Docker Compose](#instalação-com-docker-compose)
 - [Desenvolvimento local](#desenvolvimento-local)
 - [API](#api)
@@ -84,6 +85,18 @@ flowchart TD
 ```
 
 Os alertas são enviados em segundo plano, por isso uma falha no n8n, no Discord ou no Telegram não impede a análise. Se o Redis estiver indisponível, o limite de pedidos deixa de ser aplicado e a análise continua.
+
+## Painel
+
+O painel tem duas páginas: uma para acompanhar os incidentes e outra para submeter novos. Os dados mostrados nas imagens são fictícios.
+
+![Histórico com métricas, gráficos e incidentes registados](docs/dashboard2.png)
+
+*Histórico: métricas de segurança, gráficos por tipo e por nível de risco, e incidentes registados*
+
+![Formulário de submissão de um novo incidente](docs/dashboard1.png)
+
+*Submissão de um novo incidente para análise pela IA*
 
 ## Instalação com Docker Compose
 
