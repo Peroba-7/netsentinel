@@ -38,8 +38,6 @@ services:
     image: ollama/ollama:latest
     container_name: netsentinel-ollama
     restart: unless-stopped
-    ports:
-      - "127.0.0.1:11434:11434"
     volumes:
       - ollama_data:/root/.ollama
     healthcheck:

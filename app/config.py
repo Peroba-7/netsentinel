@@ -22,7 +22,7 @@ class Settings(BaseSettings):
 
     OLLAMA_URL: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "llama3"
-    OLLAMA_TIMEOUT_SECONDS: float = 120.0
+    OLLAMA_TIMEOUT_SECONDS: float = 300.0  # o primeiro pedido carrega o modelo
 
     N8N_WEBHOOK_URL: str = ""
     DISCORD_WEBHOOK_URL: str = ""
