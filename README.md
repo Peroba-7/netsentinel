@@ -90,11 +90,11 @@ Os alertas são enviados em segundo plano, por isso uma falha no n8n, no Discord
 
 O painel tem duas páginas: uma para acompanhar os incidentes e outra para submeter novos. Os dados mostrados nas imagens são fictícios.
 
-![Histórico com métricas, gráficos e incidentes registados](docs/dashboard2.png)
+![Histórico com métricas, gráficos e incidentes registados](docs/dashboard1.png)
 
 *Histórico: métricas de segurança, gráficos por tipo e por nível de risco, e incidentes registados*
 
-![Formulário de submissão de um novo incidente](docs/dashboard1.png)
+![Formulário de submissão de um novo incidente](docs/dashboard2.png)
 
 *Submissão de um novo incidente para análise pela IA*
 
