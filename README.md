@@ -184,6 +184,10 @@ Os testes usam uma base de dados em memória e simulam a IA, por isso não preci
 
 A documentação interativa está em **http://localhost:8000/docs**.
 
+![Documentação interativa da API (Swagger)](docs/api-docs.jpg)
+
+*Documentação interativa da API (Swagger)*
+
 As rotas `/threats` exigem o cabeçalho `X-API-Key`.
 
 | Método | Rota | Autenticação | Descrição |
