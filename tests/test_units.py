@@ -77,7 +77,23 @@ def test_low_risk_goes_only_to_n8n(posts):
 def test_block_is_not_dispatched_without_n8n(posts, monkeypatch):
     monkeypatch.setattr(notifications.settings, "N8N_WEBHOOK_URL", "")
 
-    assert notifications.dispatch_block("10.0.0.1", None) is False
+    assert notifications.dispatch_block("10.0.0.1", None) is None
+
+
+@pytest.mark.parametrize(
+    "response,expected",
+    [
+        (httpx.Response(200, json={"status": "bloqueado (simulado)"}), "bloqueado (simulado)"),
+        (httpx.Response(200, json={"message": "Workflow was started"}), notifications.UNCONFIRMED),
+        (httpx.Response(200, json=[1]), notifications.UNCONFIRMED),
+        (httpx.Response(200, text="OK"), notifications.UNCONFIRMED),
+    ],
+)
+def test_block_result_comes_from_n8n_response(monkeypatch, response, expected):
+    monkeypatch.setattr(notifications.settings, "N8N_WEBHOOK_URL", "http://n8n/hook")
+    monkeypatch.setattr(notifications, "_post", lambda *_args: response)
+
+    assert notifications.dispatch_block("10.0.0.1", None) == expected
 
 
 def test_notification_failure_does_not_raise(monkeypatch):
@@ -87,4 +103,4 @@ def test_notification_failure_does_not_raise(monkeypatch):
     monkeypatch.setattr(notifications.httpx, "post", fail)
     monkeypatch.setattr(notifications.settings, "N8N_WEBHOOK_URL", "http://n8n/hook")
 
-    assert notifications.dispatch_block("10.0.0.1", None) is False
+    assert notifications.dispatch_block("10.0.0.1", None) is None

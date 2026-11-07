@@ -27,3 +27,5 @@ class BlockedIPModel(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utcnow)
     # True quando o pedido de bloqueio foi aceite pelo n8n.
     dispatched: bool = False
+    # Resposta do workflow, por exemplo "bloqueado (simulado)".
+    result: str | None = None

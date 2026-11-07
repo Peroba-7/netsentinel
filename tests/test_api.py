@@ -87,16 +87,17 @@ def test_block_marks_threats_as_blocked(client):
 
     assert response.status_code == 200
     assert response.json()["dispatched"] is True
-    assert client.get("/threats/").json()[0]["status"] == "BLOQUEADO"
+    assert response.json()["result"] == "bloqueado (simulado)"
+    assert client.get("/threats/").json()[0]["status"] == "BLOQUEADO (SIMULADO)"
     assert [b["ip_address"] for b in client.get("/threats/blocked").json()] == ["10.0.0.1"]
 
 
 def test_block_reports_failed_dispatch_and_retries(client, monkeypatch):
-    monkeypatch.setattr(threats, "dispatch_block", lambda _ip, _reason: False)
+    monkeypatch.setattr(threats, "dispatch_block", lambda _ip, _reason: None)
     first = client.post("/threats/block", json={"ip_address": "10.0.0.2"})
     assert first.json()["dispatched"] is False
 
-    monkeypatch.setattr(threats, "dispatch_block", lambda _ip, _reason: True)
+    monkeypatch.setattr(threats, "dispatch_block", lambda _ip, _reason: "bloqueado")
     second = client.post("/threats/block", json={"ip_address": "10.0.0.2"})
     assert second.json()["dispatched"] is True
     assert len(client.get("/threats/blocked").json()) == 1
@@ -114,7 +115,7 @@ def test_block_does_not_redispatch_accepted_request(client, monkeypatch):
 
 
 def test_failed_dispatch_does_not_mark_threat_as_blocked(client, monkeypatch):
-    monkeypatch.setattr(threats, "dispatch_block", lambda _ip, _reason: False)
+    monkeypatch.setattr(threats, "dispatch_block", lambda _ip, _reason: None)
     analyze(client)
 
     client.post("/threats/block", json={"ip_address": "10.0.0.1"})

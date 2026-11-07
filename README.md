@@ -62,9 +62,24 @@ Todas as rotas `/threats` exigem o cabeçalho `X-API-Key`.
 
 ## Bloqueio de IPs
 
-**A API não altera nenhuma firewall.** O bloqueio é registado e enviado ao n8n como evento; a alteração na firewall tem de ser feita por um workflow seu.
+**O projeto funciona em modo de simulação: nenhuma firewall é alterada.** A API regista o bloqueio e envia-o ao n8n, que valida o IP, escreve no log e responde `bloqueado (simulado)`. O dashboard mostra esse estado tal como o workflow o devolve.
 
-Crie no n8n um workflow ativo com um webhook no caminho `netsentinel`. Ele recebe dois eventos:
+O workflow está em [n8n/netsentinel-block-simulation.json](n8n/netsentinel-block-simulation.json). Para o instalar num ambiente novo:
+
+```bash
+docker cp n8n/netsentinel-block-simulation.json netsentinel-n8n:/tmp/wf.json
+docker exec netsentinel-n8n n8n import:workflow --input=/tmp/wf.json
+docker exec netsentinel-n8n n8n publish:workflow --id=netsentinelBlockSim
+docker compose restart n8n
+```
+
+Para ver os bloqueios registados:
+
+```bash
+docker logs netsentinel-n8n 2>&1 | grep NETSENTINEL-BLOCK
+```
+
+O webhook `netsentinel` recebe dois eventos:
 
 ```json
 {"event": "threat.analyzed", "id": 1, "ip_address": "203.0.113.7", "risk_level": "ALTO", "...": "..."}
@@ -72,6 +87,25 @@ Crie no n8n um workflow ativo com um webhook no caminho `netsentinel`. Ele receb
 ```
 
 Se o n8n não aceitar o pedido, o IP fica com `dispatched: false`, o dashboard mostra um aviso e o pedido pode ser repetido.
+
+### Trocar a simulação por uma firewall real
+
+Só o nó **Firewall (SIMULADO)** precisa de mudar; a API e o dashboard ficam iguais.
+
+1. Substitua esse nó por um nó **SSH** ligado ao servidor com a firewall, com um destes comandos:
+
+   ```bash
+   sudo ufw deny from {{ $json.ip_address }}
+   sudo iptables -I INPUT -s {{ $json.ip_address }} -j DROP
+   ```
+
+   O SSH é necessário porque o n8n corre num contentor: um comando local alteraria o contentor, não o servidor.
+
+2. Depois do nó SSH, adicione um nó **Set** que defina `status` como `bloqueado`, `simulated` como `false` e mantenha `ip_address`. Só chegue a este nó se o comando tiver sucesso.
+3. Mantenha o nó **Validar IP**: é ele que impede a injeção de comandos.
+4. Proteja o webhook com autenticação por cabeçalho, porque passa a poder alterar a firewall. A API tem de enviar o mesmo cabeçalho.
+5. Use uma conta SSH só com permissão para estes comandos. Um IP errado pode cortar o seu próprio acesso, por isso teste primeiro com um IP inofensivo.
+6. Os IPs bloqueados em simulação não são reenviados. Para os bloquear a sério, apague-os da tabela `blocked_ips` e peça o bloqueio de novo.
 
 ## Configuração
 

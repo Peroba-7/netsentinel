@@ -113,6 +113,8 @@ services:
       N8N_PORT: 5678
       N8N_PROTOCOL: http
       NODE_ENV: production
+      # Envia o console.log dos nós Code para `docker logs netsentinel-n8n`.
+      CODE_ENABLE_STDOUT: "true"
     volumes:
       - n8n_data:/home/node/.n8n
 

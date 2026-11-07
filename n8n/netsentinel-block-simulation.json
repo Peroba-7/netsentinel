@@ -1,0 +1,163 @@
+{
+  "id": "netsentinelBlockSim",
+  "versionId": "9a1f6f3e-6a3c-4f4e-9d2b-0d3c7e5b1a01",
+  "name": "NetSentinel - Bloqueio de IP (simulação)",
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "nodes": [
+    {
+      "id": "0f7d1c50-1a11-4c1e-8a01-000000000001",
+      "name": "Webhook NetSentinel",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 200],
+      "webhookId": "7c7f3b52-53d8-4f6a-9a0e-6a6e1f0e7a11",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "netsentinel",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "0f7d1c50-1a11-4c1e-8a01-000000000002",
+      "name": "É pedido de bloqueio?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [240, 200],
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.body.event }}",
+              "rightValue": "ip.block",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "0f7d1c50-1a11-4c1e-8a01-000000000003",
+      "name": "Validar IP",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 80],
+      "notes": "Barreira contra injeção de comandos: mantenha este nó ao trocar a simulação por ufw/iptables.",
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const ip = String($json.body.ip_address ?? '');\nconst ipv4 = /^((25[0-5]|2[0-4]\\d|1?\\d?\\d)\\.){3}(25[0-5]|2[0-4]\\d|1?\\d?\\d)$/;\nconst ipv6 = /^(?=.*:)[0-9a-fA-F:.]{2,45}$/;\nreturn { json: { ip_address: ip, reason: $json.body.reason ?? null, valid: ipv4.test(ip) || ipv6.test(ip) } };"
+      }
+    },
+    {
+      "id": "0f7d1c50-1a11-4c1e-8a01-000000000004",
+      "name": "IP válido?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [720, 80],
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "c2",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "true", "singleValue": true }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "0f7d1c50-1a11-4c1e-8a01-000000000005",
+      "name": "Firewall (SIMULADO)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [960, 0],
+      "notes": "ÚNICO nó a trocar para usar uma firewall real. Veja a secção de bloqueio de IPs no README.",
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "a1", "name": "status", "type": "string", "value": "bloqueado (simulado)" },
+            { "id": "a2", "name": "simulated", "type": "boolean", "value": true },
+            { "id": "a3", "name": "ip_address", "type": "string", "value": "={{ $json.ip_address }}" },
+            { "id": "a4", "name": "reason", "type": "string", "value": "={{ $json.reason }}" },
+            { "id": "a5", "name": "timestamp", "type": "string", "value": "={{ $now.toISO() }}" }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "0f7d1c50-1a11-4c1e-8a01-000000000006",
+      "name": "Registar no log",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1200, 0],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "console.log(`[NETSENTINEL-BLOCK] ${JSON.stringify($json)}`);\nreturn { json: $json };"
+      }
+    },
+    {
+      "id": "0f7d1c50-1a11-4c1e-8a01-000000000007",
+      "name": "Responder resultado",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1440, 0],
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": { "responseCode": 200 }
+      }
+    },
+    {
+      "id": "0f7d1c50-1a11-4c1e-8a01-000000000008",
+      "name": "Responder IP inválido",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [960, 200],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"status\": \"rejeitado\", \"error\": \"IP inválido\" } }}",
+        "options": { "responseCode": 400 }
+      }
+    },
+    {
+      "id": "0f7d1c50-1a11-4c1e-8a01-000000000009",
+      "name": "Confirmar receção",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [480, 320],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"status\": \"recebido\" } }}",
+        "options": { "responseCode": 200 }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook NetSentinel": { "main": [[{ "node": "É pedido de bloqueio?", "type": "main", "index": 0 }]] },
+    "É pedido de bloqueio?": {
+      "main": [
+        [{ "node": "Validar IP", "type": "main", "index": 0 }],
+        [{ "node": "Confirmar receção", "type": "main", "index": 0 }]
+      ]
+    },
+    "Validar IP": { "main": [[{ "node": "IP válido?", "type": "main", "index": 0 }]] },
+    "IP válido?": {
+      "main": [
+        [{ "node": "Firewall (SIMULADO)", "type": "main", "index": 0 }],
+        [{ "node": "Responder IP inválido", "type": "main", "index": 0 }]
+      ]
+    },
+    "Firewall (SIMULADO)": { "main": [[{ "node": "Registar no log", "type": "main", "index": 0 }]] },
+    "Registar no log": { "main": [[{ "node": "Responder resultado", "type": "main", "index": 0 }]] }
+  }
+}

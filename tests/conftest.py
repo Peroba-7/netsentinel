@@ -57,7 +57,7 @@ def client(monkeypatch):
     monkeypatch.setattr(graph, "generate_analysis", lambda _prompt: LLM_RESPONSE)
     monkeypatch.setattr(rate_limit, "redis_client", FakeRedis())
     monkeypatch.setattr(threats, "notify_threat", lambda _threat: None)
-    monkeypatch.setattr(threats, "dispatch_block", lambda _ip, _reason: True)
+    monkeypatch.setattr(threats, "dispatch_block", lambda _ip, _reason: "bloqueado (simulado)")
     with TestClient(app, headers=HEADERS) as test_client:
         yield test_client
     app.dependency_overrides.clear()

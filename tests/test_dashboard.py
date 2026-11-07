@@ -45,6 +45,7 @@ def api(monkeypatch):
                     "reason": None,
                     "created_at": "2026-11-06T12:00:00Z",
                     "dispatched": True,
+                    "result": "bloqueado (simulado)",
                 }
             ),
         },
@@ -124,13 +125,39 @@ def test_history_handles_empty_database(api):
 
 def test_history_warns_about_undispatched_block(api):
     api["routes"][("GET", "/threats/blocked")] = FakeResponse(
-        [{"ip_address": "10.0.0.1", "reason": None, "created_at": "x", "dispatched": False}]
+        [
+            {
+                "ip_address": "10.0.0.1",
+                "reason": None,
+                "created_at": "x",
+                "dispatched": False,
+                "result": None,
+            }
+        ]
     )
 
     page = open_page("history.py")
 
     assert "10.0.0.1" in page.warning[0].value
     assert page.selectbox[0].options == ["10.0.0.1"]
+
+
+def test_history_flags_simulated_blocks(api):
+    api["routes"][("GET", "/threats/blocked")] = FakeResponse(
+        [
+            {
+                "ip_address": "10.0.0.1",
+                "reason": None,
+                "created_at": "x",
+                "dispatched": True,
+                "result": "bloqueado (simulado)",
+            }
+        ]
+    )
+
+    page = open_page("history.py")
+
+    assert "simulados" in page.info[0].value
 
 
 def test_history_requests_block(api):

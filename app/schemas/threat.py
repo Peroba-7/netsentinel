@@ -6,7 +6,6 @@ RISK_LEVELS = ("BAIXO", "MÉDIO", "ALTO", "CRÍTICO", "INDETERMINADO")
 ALERT_LEVELS = {"ALTO", "CRÍTICO"}
 
 STATUS_ANALYZED = "ANALISADO"
-STATUS_BLOCKED = "BLOQUEADO"
 
 
 class ThreatCreate(BaseModel):
@@ -38,3 +37,4 @@ class BlockResponse(BaseModel):
     reason: str | None
     created_at: datetime
     dispatched: bool
+    result: str | None

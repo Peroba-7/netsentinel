@@ -75,6 +75,12 @@ if pending:
         title="Bloqueios por executar",
     )
 
+if any("simulado" in (entry["result"] or "") for entry in blocked):
+    st.info(
+        "Os bloqueios marcados como simulados foram apenas registados.",
+        title="Modo de simulação: nenhuma firewall foi alterada",
+    )
+
 dispatched = {entry["ip_address"] for entry in blocked if entry["dispatched"]}
 candidates = [ip for ip in df["ip_address"].unique() if ip not in dispatched]
 
@@ -90,7 +96,7 @@ if st.button("Pedir bloqueio", type="primary", icon=":material/block:"):
         st.error(str(exc), title="Não foi possível registar o bloqueio")
     else:
         if result["dispatched"]:
-            st.toast(f"Pedido de bloqueio de {selected_ip} enviado ao n8n.")
+            st.toast(f"{selected_ip}: {result['result']}")
         else:
             st.toast(f"{selected_ip} registado, mas o n8n não aceitou o pedido.")
         st.rerun()

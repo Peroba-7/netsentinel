@@ -10,7 +10,6 @@ from app.db.database import get_db
 from app.db.models import BlockedIPModel, ThreatModel
 from app.schemas.threat import (
     STATUS_ANALYZED,
-    STATUS_BLOCKED,
     BlockRequest,
     BlockResponse,
     ThreatCreate,
@@ -24,15 +23,20 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/threats", tags=["Threats"], dependencies=[Depends(verify_api_key)])
 
 
-def _to_response(threat: ThreatModel, blocked_ips: set[str]) -> ThreatResponse:
-    threat_status = STATUS_BLOCKED if threat.ip_address in blocked_ips else STATUS_ANALYZED
-    return ThreatResponse(**threat.model_dump(), status=threat_status)
+def _to_response(threat: ThreatModel, block_results: dict[str, str]) -> ThreatResponse:
+    result = block_results.get(threat.ip_address)
+    return ThreatResponse(
+        **threat.model_dump(), status=result.upper() if result else STATUS_ANALYZED
+    )
 
 
-def _blocked_ips(db: Session) -> set[str]:
+def _block_results(db: Session) -> dict[str, str]:
+    # O estado vem da resposta do workflow, que sabe se o bloqueio foi real ou simulado.
     # Sem aceitação do n8n, nada foi bloqueado: o incidente não pode aparecer como tal.
-    query = select(BlockedIPModel.ip_address).where(col(BlockedIPModel.dispatched))
-    return set(db.exec(query).all())
+    query = select(BlockedIPModel.ip_address, BlockedIPModel.result).where(
+        col(BlockedIPModel.dispatched)
+    )
+    return {ip_address: result for ip_address, result in db.exec(query).all() if result}
 
 
 @router.post(
@@ -75,7 +79,7 @@ def analyze_threat(
     db.commit()
     db.refresh(record)
 
-    response = _to_response(record, _blocked_ips(db))
+    response = _to_response(record, _block_results(db))
     background_tasks.add_task(notify_threat, response.model_dump(mode="json"))
     return response
 
@@ -89,8 +93,8 @@ def list_threats(
     threats = db.exec(
         select(ThreatModel).order_by(col(ThreatModel.id).desc()).offset(offset).limit(limit)
     ).all()
-    blocked_ips = _blocked_ips(db)
-    return [_to_response(threat, blocked_ips) for threat in threats]
+    block_results = _block_results(db)
+    return [_to_response(threat, block_results) for threat in threats]
 
 
 @router.get("/blocked", response_model=list[BlockResponse])
@@ -102,7 +106,8 @@ def list_blocked(db: Session = Depends(get_db)):
 def block_ip(request: BlockRequest, db: Session = Depends(get_db)):
     """Regista o bloqueio e pede a sua execução ao n8n.
 
-    A API não altera nenhuma firewall: `dispatched` indica se o n8n aceitou o pedido.
+    A API não altera nenhuma firewall: `dispatched` indica se o n8n aceitou o pedido e
+    `result` guarda a resposta dele, por exemplo "bloqueado (simulado)".
     Repetir o pedido volta a tentar o envio, se ainda não tiver sido aceite.
     """
     ip_address = str(request.ip_address)
@@ -112,7 +117,8 @@ def block_ip(request: BlockRequest, db: Session = Depends(get_db)):
 
     if record is None:
         record = BlockedIPModel(ip_address=ip_address, reason=request.reason)
-    record.dispatched = dispatch_block(ip_address, record.reason)
+    record.result = dispatch_block(ip_address, record.reason)
+    record.dispatched = record.result is not None
     db.add(record)
     db.commit()
     db.refresh(record)
