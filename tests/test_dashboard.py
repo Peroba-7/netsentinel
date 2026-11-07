@@ -99,12 +99,46 @@ def test_submit_shows_analysis(api):
     assert [metric.value for metric in page.metric] == ["ALTO", "ANALISADO"]
 
 
-def test_submit_requires_fields(api):
+@pytest.mark.parametrize(
+    "ip_address,description,expected",
+    [
+        ("", "", "endereço IP"),
+        ("", "Tráfego anormal.", "endereço IP"),
+        ("10.0.0.1", "   ", "descrição"),
+        ("999.0.0.1", "Tráfego anormal.", "não é válido"),
+    ],
+)
+def test_submit_explains_rejection_and_sends_nothing(api, ip_address, description, expected):
+    page = open_page("submit.py")
+    page.text_input[0].set_value(ip_address)
+    page.text_area[0].set_value(description)
+    page.button[0].click().run()
+
+    assert expected in page.error[0].value
+    assert api["calls"] == []
+
+
+def test_submit_fields_have_no_placeholder_that_looks_filled(api):
+    page = open_page("submit.py")
+
+    assert not page.text_input[0].placeholder
+    assert not page.text_area[0].placeholder
+
+
+def test_submit_rejection_is_logged(api, caplog):
     page = open_page("submit.py")
     page.button[0].click().run()
 
-    assert len(page.warning) == 1
-    assert api["calls"] == []
+    assert "Envio rejeitado" in caplog.text
+
+
+def test_submit_confirms_saved_incident(api):
+    page = open_page("submit.py")
+    page.text_input[0].set_value("10.0.0.1")
+    page.text_area[0].set_value("Tráfego anormal.")
+    page.button[0].click().run()
+
+    assert "Incidente 1 guardado" in page.success[0].value
 
 
 def test_history_shows_metrics(api):

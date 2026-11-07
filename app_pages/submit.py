@@ -1,32 +1,59 @@
+import ipaddress
+import logging
+
 import streamlit as st
 
 from dashboard_api import ApiError, analyze_threat
 
+logger = logging.getLogger("netsentinel.dashboard")
+
 THREAT_TYPES = ["Brute Force", "Port Scan", "DDoS", "Malware", "Acesso Não Autorizado"]
+
+
+def find_problems(ip_address: str, description: str) -> list[str]:
+    """Devolve o que impede o envio, para o analista saber exatamente o que corrigir."""
+    problems = []
+    if not ip_address:
+        problems.append("Preencha o endereço IP.")
+    else:
+        try:
+            ipaddress.ip_address(ip_address)
+        except ValueError:
+            problems.append(f"O endereço IP {ip_address!r} não é válido.")
+    if not description:
+        problems.append("Preencha a descrição do incidente.")
+    return problems
+
 
 st.subheader("Submeter novo incidente", anchor=False)
 
+# Sem placeholders: num campo vazio, parecem texto escrito e o envio era rejeitado.
 with st.form("threat_form", border=True):
-    ip_address = st.text_input("Endereço IP", placeholder="192.168.1.100")
+    ip_address = st.text_input("Endereço IP (obrigatório)", help="Por exemplo: 203.0.113.7")
     threat_type = st.selectbox("Tipo de ameaça", THREAT_TYPES)
-    description = st.text_area(
-        "Descrição do incidente",
-        placeholder="Múltiplas tentativas de login inválidas a partir da origem.",
-        max_chars=5000,
-    )
+    description = st.text_area("Descrição do incidente (obrigatória)", max_chars=5000)
+    # Fica junto ao botão, para o aviso nunca aparecer fora do ecrã.
+    feedback = st.container()
     submitted = st.form_submit_button("Executar análise", type="primary", icon=":material/search:")
 
 if submitted:
-    if not ip_address.strip() or not description.strip():
-        st.warning("Preencha o endereço IP e a descrição do incidente.")
+    ip_address = ip_address.strip()
+    description = description.strip()
+    problems = find_problems(ip_address, description)
+
+    if problems:
+        logger.warning("Envio rejeitado no formulário: %s", " ".join(problems))
+        feedback.error(" ".join(problems), title="O incidente não foi enviado")
         st.stop()
 
     try:
-        with st.spinner("A analisar o incidente com a IA..."):
-            result = analyze_threat(ip_address.strip(), threat_type, description.strip())
+        with st.spinner("A analisar o incidente. Pode demorar alguns minutos..."):
+            result = analyze_threat(ip_address, threat_type, description)
     except ApiError as exc:
-        st.error(str(exc), title="Não foi possível concluir a análise")
+        logger.warning("Análise falhou: %s", exc)
+        st.error(str(exc), title="O incidente não foi guardado")
     else:
+        st.success(f"Incidente {result['id']} guardado.")
         with st.container(horizontal=True):
             st.metric("Nível de risco", result["risk_level"], border=True)
             st.metric("Estado", result["status"], border=True)
