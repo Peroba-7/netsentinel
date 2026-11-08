@@ -149,7 +149,10 @@ def block_ip(request: BlockRequest, db: Session = Depends(get_db)):
         return record
 
     if record is None:
-        record = BlockedIPModel(ip_address=ip_address, reason=request.reason)
+        record = BlockedIPModel(ip_address=ip_address)
+    # Numa nova tentativa, um motivo enviado agora substitui o anterior; sem motivo, mantém-se.
+    if request.reason:
+        record.reason = request.reason
     record.result = dispatch_block(ip_address, record.reason)
     record.dispatched = record.result is not None
     db.add(record)

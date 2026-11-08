@@ -4,6 +4,7 @@ import redis
 
 from app.agents.graph import parse_analysis
 from app.core import rate_limit
+from app.schemas.threat import normalize_threat_type
 from app.services import notification_service as notifications
 
 
@@ -136,3 +137,29 @@ def test_unblock_sends_unblock_event(posts):
 
     assert posts[0][1] == {"event": "ip.unblock", "ip_address": "10.0.0.1"}
 
+
+
+def test_block_payload_carries_reason(posts):
+    notifications.dispatch_block("10.0.0.1", "Brute Force, risco ALTO")
+
+    assert posts[0][1] == {
+        "event": "ip.block",
+        "ip_address": "10.0.0.1",
+        "reason": "Brute Force, risco ALTO",
+    }
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("Brute Force", "Brute Force"),
+        ("SSH Brute Force", "Brute Force"),
+        ("bruteforce", "Brute Force"),
+        ("DDOS", "DDoS"),
+        ("phishing ", "Phishing"),
+        ("other", "Outro"),
+        ("Ransomware  novo", "Ransomware novo"),
+    ],
+)
+def test_normalize_threat_type(raw, expected):
+    assert normalize_threat_type(raw) == expected

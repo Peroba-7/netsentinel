@@ -191,3 +191,51 @@ def test_unblock_unknown_ip_returns_404(client):
     assert client.delete("/threats/block/10.0.0.9").status_code == 404
     assert client.delete("/threats/block/999.0.0.1").status_code == 422
 
+
+
+@pytest.mark.parametrize(
+    "sent,saved",
+    [
+        ("brute force", "Brute Force"),
+        ("  SSH   Brute Force ", "Brute Force"),
+        ("ddos", "DDoS"),
+        ("port-scan", "Port Scan"),
+        ("  SQL   Injection ", "SQL Injection"),
+    ],
+)
+def test_analyze_normalizes_threat_type(client, sent, saved):
+    response = analyze(client, threat_type=sent)
+
+    assert response.status_code == 201
+    assert response.json()["threat_type"] == saved
+    assert client.get("/threats/").json()[0]["threat_type"] == saved
+
+
+def test_analyze_rejects_blank_threat_type(client):
+    assert analyze(client, threat_type="   ").status_code == 422
+
+
+def test_block_saves_reason_and_sends_it_to_n8n(client, monkeypatch):
+    sent = []
+    monkeypatch.setattr(
+        threats, "dispatch_block", lambda ip, reason: sent.append((ip, reason)) or "bloqueado"
+    )
+
+    response = client.post(
+        "/threats/block", json={"ip_address": "10.0.0.1", "reason": "DDoS, risco ALTO"}
+    )
+
+    assert response.json()["reason"] == "DDoS, risco ALTO"
+    assert sent == [("10.0.0.1", "DDoS, risco ALTO")]
+
+
+def test_block_retry_updates_missing_reason(client, monkeypatch):
+    monkeypatch.setattr(threats, "dispatch_block", lambda _ip, _reason: None)
+    client.post("/threats/block", json={"ip_address": "10.0.0.2"})
+
+    monkeypatch.setattr(threats, "dispatch_block", lambda _ip, _reason: "bloqueado")
+    retry = client.post(
+        "/threats/block", json={"ip_address": "10.0.0.2", "reason": "Port Scan, risco MÉDIO"}
+    )
+
+    assert retry.json()["reason"] == "Port Scan, risco MÉDIO"

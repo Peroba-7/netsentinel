@@ -3,11 +3,10 @@ import logging
 
 import streamlit as st
 
+from app.schemas.threat import THREAT_TYPES
 from dashboard_api import ApiError, analyze_threat
 
 logger = logging.getLogger("netsentinel.dashboard")
-
-THREAT_TYPES = ["Brute Force", "Port Scan", "DDoS", "Malware", "Acesso Não Autorizado"]
 
 
 def find_problems(ip_address: str, description: str) -> list[str]:

@@ -6,6 +6,7 @@ import requests
 from streamlit.testing.v1 import AppTest
 
 import dashboard_api
+from app.schemas.threat import THREAT_TYPES
 
 PAGES = Path(__file__).resolve().parent.parent / "app_pages"
 
@@ -202,7 +203,26 @@ def test_history_requests_block(api):
     page.button[0].click().run()
 
     assert not page.exception
-    assert ("POST", "/threats/block") in [call[:2] for call in api["calls"]]
+    block_call = next(call for call in api["calls"] if call[:2] == ("POST", "/threats/block"))
+    assert block_call[2]["json"] == {"ip_address": "10.0.0.1", "reason": "DDoS, risco ALTO"}
+
+
+def test_history_block_reason_uses_latest_incident_of_ip(api):
+    older = {**THREAT, "id": 1, "threat_type": "ssh brute force", "risk_level": "MÉDIO"}
+    newer = {**THREAT, "id": 2, "threat_type": "Port Scan", "risk_level": "CRÍTICO"}
+    api["routes"][("GET", "/threats/")] = FakeResponse([newer, older])
+
+    page = open_page("history.py")
+    page.button[0].click().run()
+
+    block_call = next(call for call in api["calls"] if call[:2] == ("POST", "/threats/block"))
+    assert block_call[2]["json"]["reason"] == "Port Scan, risco CRÍTICO"
+
+
+def test_submit_offers_only_known_threat_types(api):
+    page = open_page("submit.py")
+
+    assert page.selectbox[0].options == list(THREAT_TYPES)
 
 
 def test_history_filters_table_without_changing_metrics(api):

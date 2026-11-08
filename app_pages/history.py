@@ -2,7 +2,7 @@ import altair as alt
 import pandas as pd
 import streamlit as st
 
-from app.schemas.threat import ALERT_LEVELS, RISK_LEVELS
+from app.schemas.threat import ALERT_LEVELS, RISK_LEVELS, normalize_threat_type
 from dashboard_api import ApiError, block_ip, list_blocked, list_threats, unblock_ip
 
 
@@ -15,6 +15,12 @@ def to_safe_csv(frame: pd.DataFrame) -> bytes:
         return value
 
     return frame.map(neutralize).to_csv(index=False).encode("utf-8-sig")
+
+
+def block_reason(incidents: pd.DataFrame, ip_address: str) -> str:
+    """Motivo do bloqueio a partir do incidente mais recente do IP, ex.: "DDoS, risco ALTO"."""
+    latest = incidents[incidents["ip_address"] == ip_address].sort_values("id").iloc[-1]
+    return f"{normalize_threat_type(latest['threat_type'])}, risco {latest['risk_level']}"
 
 
 st.subheader("Histórico e métricas de segurança", anchor=False)
@@ -60,7 +66,8 @@ by_type, by_risk = st.columns(2, border=True)
 with by_type:
     st.markdown("**Ameaças por tipo**")
     st.altair_chart(
-        count_chart(df["threat_type"].value_counts(), "Tipo"),
+        # Agrupa também registos antigos gravados antes da normalização ("SSH Brute Force"...).
+        count_chart(df["threat_type"].map(normalize_threat_type).value_counts(), "Tipo"),
         width="stretch",
         alt="Número de incidentes por tipo de ameaça",
     )
@@ -128,7 +135,7 @@ else:
     selected_ip = st.selectbox("IP a bloquear", candidates)
     if st.button("Pedir bloqueio", type="primary", icon=":material/block:"):
         try:
-            result = block_ip(selected_ip)
+            result = block_ip(selected_ip, block_reason(df, selected_ip))
         except ApiError as exc:
             st.error(str(exc), title="Não foi possível registar o bloqueio")
         else:

@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, IPvAnyAddress
+from pydantic import BaseModel, ConfigDict, Field, IPvAnyAddress, field_validator
 
 RISK_LEVELS = ("BAIXO", "MÉDIO", "ALTO", "CRÍTICO", "INDETERMINADO")
 RiskLevel = Literal["BAIXO", "MÉDIO", "ALTO", "CRÍTICO", "INDETERMINADO"]
@@ -9,11 +9,39 @@ ALERT_LEVELS = {"ALTO", "CRÍTICO"}
 
 STATUS_ANALYZED = "ANALISADO"
 
+THREAT_TYPES = ("Brute Force", "DDoS", "Port Scan", "Malware", "Phishing", "Outro")
+
+# Chave de comparação (só letras e números, em minúsculas) -> nome padrão.
+_THREAT_TYPE_ALIASES = {
+    **{"".join(filter(str.isalnum, name.lower())): name for name in THREAT_TYPES},
+    "sshbruteforce": "Brute Force",
+    "other": "Outro",
+}
+
+
+def normalize_threat_type(value: str) -> str:
+    """Devolve o nome padrão de um tipo conhecido, ignorando espaços, hífens e maiúsculas.
+
+    Assim "brute-force", "SSH Brute Force" e " Brute  Force " contam como uma só categoria.
+    Um tipo desconhecido mantém o texto original, só com os espaços arrumados.
+    """
+    text = " ".join(value.split())
+    key = "".join(filter(str.isalnum, text.lower()))
+    return _THREAT_TYPE_ALIASES.get(key, text)
+
 
 class ThreatCreate(BaseModel):
     ip_address: IPvAnyAddress
     threat_type: str = Field(min_length=1, max_length=100)
     description: str = Field(min_length=1, max_length=5000)
+
+    @field_validator("threat_type")
+    @classmethod
+    def _normalize_threat_type(cls, value: str) -> str:
+        normalized = normalize_threat_type(value)
+        if not normalized:
+            raise ValueError("O tipo de ameaça não pode estar vazio.")
+        return normalized
 
 
 class ThreatResponse(BaseModel):
