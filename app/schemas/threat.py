@@ -1,8 +1,10 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, IPvAnyAddress
 
 RISK_LEVELS = ("BAIXO", "MÉDIO", "ALTO", "CRÍTICO", "INDETERMINADO")
+RiskLevel = Literal["BAIXO", "MÉDIO", "ALTO", "CRÍTICO", "INDETERMINADO"]
 ALERT_LEVELS = {"ALTO", "CRÍTICO"}
 
 STATUS_ANALYZED = "ANALISADO"
@@ -37,4 +39,10 @@ class BlockResponse(BaseModel):
     reason: str | None
     created_at: datetime
     dispatched: bool
+    result: str | None
+
+
+class UnblockResponse(BaseModel):
+    ip_address: str
+    # Resposta do workflow, ou None quando o bloqueio nunca chegou a ser aceite pelo n8n.
     result: str | None

@@ -1,8 +1,9 @@
+import altair as alt
 import pandas as pd
 import streamlit as st
 
 from app.schemas.threat import ALERT_LEVELS, RISK_LEVELS
-from dashboard_api import ApiError, block_ip, list_blocked, list_threats
+from dashboard_api import ApiError, block_ip, list_blocked, list_threats, unblock_ip
 
 
 def to_safe_csv(frame: pd.DataFrame) -> bytes:
@@ -31,6 +32,25 @@ if not threats:
 
 df = pd.DataFrame(threats)
 
+
+def count_chart(counts: pd.Series, x_label: str, order: list[str] | None = None) -> alt.Chart:
+    """Gráfico de barras de contagens, com o eixo a começar em 0 e passos inteiros."""
+    frame = counts.rename_axis(x_label).reset_index(name="Incidentes")
+    return (
+        alt.Chart(frame)
+        .mark_bar()
+        .encode(
+            x=alt.X(f"{x_label}:N", sort=order or "-y", title=x_label),
+            y=alt.Y(
+                "Incidentes:Q",
+                scale=alt.Scale(domainMin=0),
+                axis=alt.Axis(tickMinStep=1),
+            ),
+            tooltip=[x_label, "Incidentes"],
+        )
+    )
+
+
 with st.container(horizontal=True):
     st.metric("Incidentes", len(df), border=True)
     st.metric("Risco alto ou crítico", int(df["risk_level"].isin(ALERT_LEVELS).sum()), border=True)
@@ -39,27 +59,45 @@ with st.container(horizontal=True):
 by_type, by_risk = st.columns(2, border=True)
 with by_type:
     st.markdown("**Ameaças por tipo**")
-    st.bar_chart(
-        df["threat_type"].value_counts(),
-        x_label="Tipo",
-        y_label="Incidentes",
+    st.altair_chart(
+        count_chart(df["threat_type"].value_counts(), "Tipo"),
+        width="stretch",
         alt="Número de incidentes por tipo de ameaça",
     )
 with by_risk:
     st.markdown("**Níveis de risco**")
-    st.bar_chart(
-        df["risk_level"].value_counts().reindex(RISK_LEVELS, fill_value=0),
-        x_label="Risco",
-        y_label="Incidentes",
-        sort=False,
+    st.altair_chart(
+        count_chart(
+            df["risk_level"].value_counts().reindex(RISK_LEVELS, fill_value=0),
+            "Risco",
+            order=list(RISK_LEVELS),
+        ),
+        width="stretch",
         alt="Número de incidentes por nível de risco",
     )
 
+with st.sidebar:
+    st.markdown("**Filtros dos incidentes**")
+    risk_filter = st.multiselect("Nível de risco", RISK_LEVELS)
+    text_filter = st.text_input("Pesquisar por IP, tipo ou descrição").strip()
+
+view = df
+if risk_filter:
+    view = view[view["risk_level"].isin(risk_filter)]
+if text_filter:
+    haystack = view[["ip_address", "threat_type", "description"]].fillna("").agg(" ".join, axis=1)
+    view = view[haystack.str.contains(text_filter, case=False, regex=False)]
+
 st.subheader("Incidentes registados", anchor=False)
-st.dataframe(df, hide_index=True, alt="Lista de incidentes registados")
+if len(view) != len(df):
+    st.caption(f"A mostrar {len(view)} de {len(df)} incidentes.")
+if view.empty:
+    st.info("Nenhum incidente corresponde aos filtros.")
+else:
+    st.dataframe(view, hide_index=True, alt="Lista de incidentes registados")
 st.download_button(
     "Descarregar relatório (CSV)",
-    data=to_safe_csv(df),
+    data=to_safe_csv(view),
     file_name="netsentinel_relatorio.csv",
     mime="text/csv",
     icon=":material/download:",
@@ -86,17 +124,35 @@ candidates = [ip for ip in df["ip_address"].unique() if ip not in dispatched]
 
 if not candidates:
     st.info("Todos os IPs registados já têm um pedido de bloqueio enviado.")
-    st.stop()
-
-selected_ip = st.selectbox("IP a bloquear", candidates)
-if st.button("Pedir bloqueio", type="primary", icon=":material/block:"):
-    try:
-        result = block_ip(selected_ip)
-    except ApiError as exc:
-        st.error(str(exc), title="Não foi possível registar o bloqueio")
-    else:
-        if result["dispatched"]:
-            st.toast(f"{selected_ip}: {result['result']}")
+else:
+    selected_ip = st.selectbox("IP a bloquear", candidates)
+    if st.button("Pedir bloqueio", type="primary", icon=":material/block:"):
+        try:
+            result = block_ip(selected_ip)
+        except ApiError as exc:
+            st.error(str(exc), title="Não foi possível registar o bloqueio")
         else:
-            st.toast(f"{selected_ip} registado, mas o n8n não aceitou o pedido.")
-        st.rerun()
+            if result["dispatched"]:
+                st.toast(f"{selected_ip}: {result['result']}")
+            else:
+                st.toast(f"{selected_ip} registado, mas o n8n não aceitou o pedido.")
+            st.rerun()
+
+if blocked:
+    st.subheader("Bloqueios ativos", anchor=False)
+    st.dataframe(
+        pd.DataFrame(blocked)[["ip_address", "reason", "created_at", "dispatched", "result"]],
+        hide_index=True,
+        alt="Lista de IPs com pedido de bloqueio",
+    )
+    unblock_target = st.selectbox(
+        "IP a desbloquear", [entry["ip_address"] for entry in blocked], key="unblock_target"
+    )
+    if st.button("Retirar bloqueio", icon=":material/lock_open:"):
+        try:
+            result = unblock_ip(unblock_target)
+        except ApiError as exc:
+            st.error(str(exc), title="Não foi possível retirar o bloqueio")
+        else:
+            st.toast(f"{unblock_target}: {result['result'] or 'pedido de bloqueio removido'}")
+            st.rerun()

@@ -121,3 +121,73 @@ def test_failed_dispatch_does_not_mark_threat_as_blocked(client, monkeypatch):
     client.post("/threats/block", json={"ip_address": "10.0.0.1"})
 
     assert client.get("/threats/").json()[0]["status"] == "ANALISADO"
+
+
+def test_get_threat_by_id(client):
+    created = analyze(client).json()
+
+    assert client.get(f"/threats/{created['id']}").json()["id"] == created["id"]
+    assert client.get("/threats/9999").status_code == 404
+
+
+def test_list_filters_by_risk_ip_and_text(client, monkeypatch):
+    analyze(client, ip_address="10.0.0.1", threat_type="DDoS", description="Tráfego anormal.")
+    monkeypatch.setattr(
+        graph, "generate_analysis", lambda _p: '{"risk_level": "BAIXO", "analysis": "x"}'
+    )
+    analyze(client, ip_address="10.0.0.2", threat_type="Port Scan", description="50 portas")
+
+    def ips(query):
+        return [t["ip_address"] for t in client.get(f"/threats/?{query}").json()]
+
+    assert ips("risk_level=ALTO") == ["10.0.0.1"]
+    assert ips("risk_level=BAIXO") == ["10.0.0.2"]
+    assert ips("ip_address=10.0.0.2") == ["10.0.0.2"]
+    assert ips("search=port") == ["10.0.0.2"]
+    assert ips("search=TRÁFEGO") == ["10.0.0.1"]
+    assert ips("search=100%25") == []
+
+
+def test_list_rejects_invalid_filters(client):
+    assert client.get("/threats/?risk_level=ENORME").status_code == 422
+    assert client.get("/threats/?ip_address=999.0.0.1").status_code == 422
+
+
+def test_unblock_removes_accepted_block(client, monkeypatch):
+    analyze(client)
+    client.post("/threats/block", json={"ip_address": "10.0.0.1"})
+    monkeypatch.setattr(threats, "dispatch_unblock", lambda _ip: "desbloqueado (simulado)")
+
+    response = client.delete("/threats/block/10.0.0.1")
+
+    assert response.status_code == 200
+    assert response.json() == {"ip_address": "10.0.0.1", "result": "desbloqueado (simulado)"}
+    assert client.get("/threats/blocked").json() == []
+    assert client.get("/threats/").json()[0]["status"] == "ANALISADO"
+
+
+def test_unblock_keeps_block_if_n8n_does_not_accept(client, monkeypatch):
+    client.post("/threats/block", json={"ip_address": "10.0.0.1"})
+    monkeypatch.setattr(threats, "dispatch_unblock", lambda _ip: None)
+
+    assert client.delete("/threats/block/10.0.0.1").status_code == 503
+    assert len(client.get("/threats/blocked").json()) == 1
+
+
+def test_unblock_of_unaccepted_request_does_not_call_n8n(client, monkeypatch):
+    monkeypatch.setattr(threats, "dispatch_block", lambda _ip, _reason: None)
+    client.post("/threats/block", json={"ip_address": "10.0.0.1"})
+
+    def must_not_run(_ip):
+        raise AssertionError("não devia contactar o n8n")
+
+    monkeypatch.setattr(threats, "dispatch_unblock", must_not_run)
+
+    assert client.delete("/threats/block/10.0.0.1").status_code == 200
+    assert client.get("/threats/blocked").json() == []
+
+
+def test_unblock_unknown_ip_returns_404(client):
+    assert client.delete("/threats/block/10.0.0.9").status_code == 404
+    assert client.delete("/threats/block/999.0.0.1").status_code == 422
+

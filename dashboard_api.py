@@ -1,5 +1,7 @@
 """Cliente da API NetSentinel usado pelas páginas do dashboard."""
 
+from urllib.parse import quote
+
 import requests
 
 from app.config import settings
@@ -58,3 +60,7 @@ def block_ip(ip_address: str, reason: str | None = None) -> dict:
     return _request(
         "POST", "/threats/block", json={"ip_address": ip_address, "reason": reason}
     )
+
+
+def unblock_ip(ip_address: str) -> dict:
+    return _request("DELETE", f"/threats/block/{quote(ip_address, safe=':.')}")

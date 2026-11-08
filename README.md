@@ -147,14 +147,26 @@ Na primeira execução, o serviço `ollama-pull` descarrega o modelo definido em
 
 ### 4. Instalar o workflow do n8n
 
-Sem este passo, os pedidos de bloqueio não são aceites.
+Sem este passo, os pedidos de bloqueio não são aceites. O webhook exige o cabeçalho `X-NetSentinel-Secret`, por isso primeiro defina o segredo no `.env`:
 
-```bash
-docker cp n8n/netsentinel-block-simulation.json netsentinel-n8n:/tmp/wf.json
-docker exec netsentinel-n8n n8n import:workflow --input=/tmp/wf.json
-docker exec netsentinel-n8n n8n publish:workflow --id=netsentinelBlockSim
-docker compose restart n8n
+Gere um segredo com o mesmo comando da `API_KEY` e cole-o no `.env` (um valor diferente do da `API_KEY`):
+
+```text
+N8N_WEBHOOK_SECRET=o_segredo_gerado
 ```
+
+Edite o `.env` num editor de texto. Evite `>>` no PowerShell, que grava em UTF-16 e estraga o ficheiro.
+
+Depois instale o workflow e a credencial no n8n (o script lê o segredo do `.env`, importa, publica e reinicia o n8n):
+
+```powershell
+.\n8n\install-workflow.ps1      # Windows
+```
+```bash
+./n8n/install-workflow.sh        # Linux e macOS
+```
+
+Se mudar o `N8N_WEBHOOK_SECRET`, volte a executar o script e reinicie a API (`docker compose up -d`).
 
 ### 5. Abrir
 
@@ -210,9 +222,11 @@ As rotas `/threats` exigem o cabeçalho `X-API-Key`.
 | `GET` | `/` | Não | Confirma que a API está ativa |
 | `GET` | `/health` | Não | Estado da base de dados, do Redis e do Ollama |
 | `POST` | `/threats/analyze` | Sim | Analisa e guarda um incidente |
-| `GET` | `/threats/` | Sim | Lista incidentes, com `limit` e `offset` |
+| `GET` | `/threats/` | Sim | Lista incidentes, com `limit`, `offset` e os filtros `risk_level`, `ip_address` e `search` |
 | `GET` | `/threats/blocked` | Sim | Lista os IPs com bloqueio pedido |
+| `GET` | `/threats/{id}` | Sim | Devolve um incidente |
 | `POST` | `/threats/block` | Sim | Regista um bloqueio e envia o pedido ao n8n |
+| `DELETE` | `/threats/block/{ip}` | Sim | Retira o bloqueio; o n8n tem de aceitar o desbloqueio |
 
 ### Exemplo
 
@@ -271,11 +285,12 @@ Este log perde-se quando o contentor é recriado. O registo permanente fica na t
 
 ### Eventos do webhook
 
-O webhook `netsentinel` recebe dois eventos:
+O webhook `netsentinel` recebe três eventos:
 
 ```json
 {"event": "threat.analyzed", "id": 1, "ip_address": "203.0.113.7", "risk_level": "ALTO"}
 {"event": "ip.block", "ip_address": "203.0.113.7", "reason": null}
+{"event": "ip.unblock", "ip_address": "203.0.113.7"}
 ```
 
 ### Trocar a simulação por uma firewall real
@@ -293,7 +308,7 @@ Só o nó **Firewall (SIMULADO)** precisa de mudar. A API e o dashboard mostram 
 
 2. Depois do nó SSH, adicione um nó **Set** que defina `status` como `bloqueado`, `simulated` como `false` e mantenha `ip_address`. Este nó só deve ser alcançado se o comando tiver sucesso.
 3. Mantenha o nó **Validar IP**: é ele que impede a injeção de comandos.
-4. Proteja o webhook com autenticação e faça a API enviar as mesmas credenciais.
+4. O webhook já exige o cabeçalho `X-NetSentinel-Secret`: mantenha-o ao trocar o nó e use um segredo exclusivo.
 5. Use uma conta SSH só com permissão para estes comandos, e teste primeiro com um IP inofensivo, porque um IP errado pode cortar o seu próprio acesso.
 6. Apague de `blocked_ips` os IPs bloqueados em simulação e peça o bloqueio de novo, porque um pedido já aceite não é reenviado.
 
@@ -336,6 +351,7 @@ Todas as variáveis estão em [.env.example](.env.example).
 | `OLLAMA_TIMEOUT_SECONDS` | Não | Tempo máximo de resposta do modelo; o predefinido é 300 |
 | `RATE_LIMIT_PER_MINUTE` | Não | Análises por cliente, por minuto; 0 desativa |
 | `N8N_WEBHOOK_URL` | Não | Endereço do webhook do n8n |
+| `N8N_WEBHOOK_SECRET` | Com n8n | Segredo enviado no cabeçalho `X-NetSentinel-Secret`; o webhook rejeita pedidos sem ele |
 | `DISCORD_WEBHOOK_URL` | Não | Webhook para alertas no Discord |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | Não | Bot e conversa para alertas no Telegram |
 
@@ -343,7 +359,7 @@ Todas as variáveis estão em [.env.example](.env.example).
 
 **Este projeto foi configurado apenas para uso local.** Não o exponha à internet nem a uma rede partilhada na configuração atual.
 
-- **Webhook sem autenticação:** quem alcançar o webhook do n8n pode enviar eventos sem credenciais. Hoje só simula bloqueios, mas com uma firewall real passaria a controlá-la.
+- **Webhook com segredo partilhado:** o webhook do n8n rejeita pedidos sem o cabeçalho `X-NetSentinel-Secret`, mas o segredo viaja sem HTTPS. Quem o obtiver pode enviar eventos; com uma firewall real passaria a controlá-la.
 - **Dashboard sem login:** quem o abrir pode submeter incidentes e pedir bloqueios, porque ele usa a API key do servidor.
 - **n8n sem HTTPS:** o tráfego entre os serviços e o painel do n8n não é cifrado.
 - **Conteúdo não confiável:** as descrições de incidentes podem tentar manipular a IA. O sistema instrui o modelo a não seguir instruções nesses dados, mas isto reduz o risco sem o eliminar. Confirme sempre as conclusões antes de agir.
@@ -352,28 +368,29 @@ Todas as variáveis estão em [.env.example](.env.example).
 Antes de usar fora desta máquina, é necessário:
 
 1. Manter as portas em `127.0.0.1`, ou colocar os serviços atrás de um proxy com autenticação e HTTPS.
-2. Proteger o webhook do n8n com autenticação.
+2. Usar um `N8N_WEBHOOK_SECRET` forte e exclusivo, e HTTPS entre a API e o n8n.
 3. Usar segredos fortes e exclusivos em `API_KEY` e `POSTGRES_PASSWORD`, e nunca os colocar no git.
 
 ## Próximos passos
 
 **Segurança**
 
-- [ ] Autenticação no webhook do n8n
+- [x] Autenticação no webhook do n8n
 - [ ] Login no dashboard, com perfis de utilizador
 - [ ] Proxy com HTTPS
 
 **Funcionalidades**
 
 - [ ] Integração com uma firewall real (`ufw` ou `iptables`)
-- [ ] Desbloqueio de IPs e bloqueios com prazo
-- [ ] Filtros e pesquisa no histórico
+- [x] Desbloqueio de IPs
+- [ ] Bloqueios com prazo
+- [x] Filtros e pesquisa no histórico
 - [ ] Fluxo do LangGraph com mais etapas, como enriquecimento de IPs
 
 **Qualidade e operação**
 
 - [ ] Migrações da base de dados com Alembic
-- [ ] Integração contínua com testes e `ruff`
+- [x] Integração contínua com testes e `ruff`
 - [ ] Avaliação dos modelos com um conjunto maior de incidentes
 - [ ] Versões fixas das imagens do Ollama e do n8n
 - [ ] Aceleração por GPU no Docker

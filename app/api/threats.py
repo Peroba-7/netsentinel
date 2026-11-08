@@ -1,6 +1,8 @@
 import logging
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from pydantic import IPvAnyAddress
+from sqlalchemy import func
 from sqlmodel import Session, col, select
 
 from app.agents.graph import threat_graph
@@ -12,10 +14,12 @@ from app.schemas.threat import (
     STATUS_ANALYZED,
     BlockRequest,
     BlockResponse,
+    RiskLevel,
     ThreatCreate,
     ThreatResponse,
+    UnblockResponse,
 )
-from app.services.notification_service import dispatch_block, notify_threat
+from app.services.notification_service import dispatch_block, dispatch_unblock, notify_threat
 from app.services.ollama_service import LLMUnavailableError
 
 logger = logging.getLogger(__name__)
@@ -88,11 +92,30 @@ def analyze_threat(
 def list_threats(
     limit: int = Query(default=500, ge=1, le=1000),
     offset: int = Query(default=0, ge=0),
+    risk_level: RiskLevel | None = Query(default=None, description="Filtra por nível de risco"),
+    ip_address: IPvAnyAddress | None = Query(default=None, description="Filtra por IP exato"),
+    search: str | None = Query(
+        default=None,
+        min_length=1,
+        max_length=100,
+        description="Texto contido no tipo ou na descrição, sem distinguir maiúsculas",
+    ),
     db: Session = Depends(get_db),
 ):
-    threats = db.exec(
-        select(ThreatModel).order_by(col(ThreatModel.id).desc()).offset(offset).limit(limit)
-    ).all()
+    query = select(ThreatModel)
+    if risk_level:
+        query = query.where(ThreatModel.risk_level == risk_level)
+    if ip_address:
+        query = query.where(ThreatModel.ip_address == str(ip_address))
+    if search:
+        text = search.lower()
+        query = query.where(
+            func.lower(ThreatModel.threat_type).contains(text, autoescape=True)
+            | func.lower(func.coalesce(ThreatModel.description, "")).contains(
+                text, autoescape=True
+            )
+        )
+    threats = db.exec(query.order_by(col(ThreatModel.id).desc()).offset(offset).limit(limit)).all()
     block_results = _block_results(db)
     return [_to_response(threat, block_results) for threat in threats]
 
@@ -100,6 +123,16 @@ def list_threats(
 @router.get("/blocked", response_model=list[BlockResponse])
 def list_blocked(db: Session = Depends(get_db)):
     return db.exec(select(BlockedIPModel).order_by(col(BlockedIPModel.created_at).desc())).all()
+
+
+@router.get("/{threat_id}", response_model=ThreatResponse)
+def get_threat(threat_id: int, db: Session = Depends(get_db)):
+    threat = db.get(ThreatModel, threat_id)
+    if threat is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Incidente não encontrado."
+        )
+    return _to_response(threat, _block_results(db))
 
 
 @router.post("/block", response_model=BlockResponse)
@@ -123,3 +156,32 @@ def block_ip(request: BlockRequest, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(record)
     return record
+
+
+@router.delete("/block/{ip_address}", response_model=UnblockResponse)
+def unblock_ip(ip_address: IPvAnyAddress, db: Session = Depends(get_db)):
+    """Retira o bloqueio de um IP.
+
+    Se o n8n já tinha aceite o bloqueio, o desbloqueio também tem de ser aceite por ele; senão
+    o registo mantém-se, para a API não indicar um IP como livre quando pode continuar bloqueado.
+    Um pedido que nunca foi aceite é apenas apagado.
+    """
+    ip = str(ip_address)
+    record = db.get(BlockedIPModel, ip)
+    if record is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Este IP não tem pedido de bloqueio."
+        )
+
+    result = None
+    if record.dispatched:
+        result = dispatch_unblock(ip)
+        if result is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="O n8n não aceitou o desbloqueio. O bloqueio mantém-se registado.",
+            )
+
+    db.delete(record)
+    db.commit()
+    return UnblockResponse(ip_address=ip, result=result)

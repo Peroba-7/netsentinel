@@ -15,13 +15,17 @@
       "parameters": {
         "httpMethod": "POST",
         "path": "netsentinel",
+        "authentication": "headerAuth",
         "responseMode": "responseNode",
         "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": { "id": "netsentinelWebhookAuth", "name": "NetSentinel webhook" }
       }
     },
     {
       "id": "0f7d1c50-1a11-4c1e-8a01-000000000002",
-      "name": "É pedido de bloqueio?",
+      "name": "Bloqueio ou desbloqueio?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [240, 200],
@@ -32,9 +36,9 @@
           "conditions": [
             {
               "id": "c1",
-              "leftValue": "={{ $json.body.event }}",
-              "rightValue": "ip.block",
-              "operator": { "type": "string", "operation": "equals" }
+              "leftValue": "={{ ['ip.block', 'ip.unblock'].includes($json.body.event) }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "true", "singleValue": true }
             }
           ]
         },
@@ -50,7 +54,7 @@
       "notes": "Barreira contra injeção de comandos: mantenha este nó ao trocar a simulação por ufw/iptables.",
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "const ip = String($json.body.ip_address ?? '');\nconst ipv4 = /^((25[0-5]|2[0-4]\\d|1?\\d?\\d)\\.){3}(25[0-5]|2[0-4]\\d|1?\\d?\\d)$/;\nconst ipv6 = /^(?=.*:)[0-9a-fA-F:.]{2,45}$/;\nreturn { json: { ip_address: ip, reason: $json.body.reason ?? null, valid: ipv4.test(ip) || ipv6.test(ip) } };"
+        "jsCode": "const ip = String($json.body.ip_address ?? '');\nconst ipv4 = /^((25[0-5]|2[0-4]\\d|1?\\d?\\d)\\.){3}(25[0-5]|2[0-4]\\d|1?\\d?\\d)$/;\nconst ipv6 = /^(?=.*:)[0-9a-fA-F:.]{2,45}$/;\nreturn { json: { ip_address: ip, event: $json.body.event, reason: $json.body.reason ?? null, valid: ipv4.test(ip) || ipv6.test(ip) } };"
       }
     },
     {
@@ -85,7 +89,7 @@
       "parameters": {
         "assignments": {
           "assignments": [
-            { "id": "a1", "name": "status", "type": "string", "value": "bloqueado (simulado)" },
+            { "id": "a1", "name": "status", "type": "string", "value": "={{ $json.event === 'ip.unblock' ? 'desbloqueado (simulado)' : 'bloqueado (simulado)' }}" },
             { "id": "a2", "name": "simulated", "type": "boolean", "value": true },
             { "id": "a3", "name": "ip_address", "type": "string", "value": "={{ $json.ip_address }}" },
             { "id": "a4", "name": "reason", "type": "string", "value": "={{ $json.reason }}" },
@@ -143,8 +147,8 @@
     }
   ],
   "connections": {
-    "Webhook NetSentinel": { "main": [[{ "node": "É pedido de bloqueio?", "type": "main", "index": 0 }]] },
-    "É pedido de bloqueio?": {
+    "Webhook NetSentinel": { "main": [[{ "node": "Bloqueio ou desbloqueio?", "type": "main", "index": 0 }]] },
+    "Bloqueio ou desbloqueio?": {
       "main": [
         [{ "node": "Validar IP", "type": "main", "index": 0 }],
         [{ "node": "Confirmar receção", "type": "main", "index": 0 }]

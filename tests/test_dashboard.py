@@ -38,6 +38,9 @@ def api(monkeypatch):
         "routes": {
             ("GET", "/threats/"): FakeResponse([THREAT]),
             ("GET", "/threats/blocked"): FakeResponse([]),
+            ("DELETE", "/threats/block/10.0.0.1"): FakeResponse(
+                {"ip_address": "10.0.0.1", "result": "desbloqueado (simulado)"}
+            ),
             ("POST", "/threats/analyze"): FakeResponse(THREAT, 201),
             ("POST", "/threats/block"): FakeResponse(
                 {
@@ -200,6 +203,49 @@ def test_history_requests_block(api):
 
     assert not page.exception
     assert ("POST", "/threats/block") in [call[:2] for call in api["calls"]]
+
+
+def test_history_filters_table_without_changing_metrics(api):
+    other = {**THREAT, "id": 2, "ip_address": "10.0.0.2", "risk_level": "BAIXO"}
+    api["routes"][("GET", "/threats/")] = FakeResponse([THREAT, other])
+
+    page = open_page("history.py")
+    assert [metric.value for metric in page.metric] == ["2", "1", "0"]
+
+    page.sidebar.multiselect[0].set_value(["BAIXO"]).run()
+
+    assert not page.exception
+    assert "1 de 2" in page.caption[0].value
+    assert [metric.value for metric in page.metric] == ["2", "1", "0"]
+
+
+def test_history_text_filter_without_match_shows_message(api):
+    page = open_page("history.py")
+    page.sidebar.text_input[0].set_value("não existe").run()
+
+    assert not page.exception
+    assert "Nenhum incidente" in page.info[0].value
+
+
+def test_history_unblocks_ip(api):
+    api["routes"][("GET", "/threats/blocked")] = FakeResponse(
+        [
+            {
+                "ip_address": "10.0.0.1",
+                "reason": None,
+                "created_at": "x",
+                "dispatched": True,
+                "result": "bloqueado (simulado)",
+            }
+        ]
+    )
+    page = open_page("history.py")
+    unblock = next(button for button in page.button if button.label == "Retirar bloqueio")
+
+    unblock.click().run()
+
+    assert not page.exception
+    assert ("DELETE", "/threats/block/10.0.0.1") in [call[:2] for call in api["calls"]]
 
 
 def test_csv_neutralizes_formulas():

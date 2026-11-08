@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     OLLAMA_TIMEOUT_SECONDS: float = 300.0  # o primeiro pedido carrega o modelo
 
     N8N_WEBHOOK_URL: str = ""
+    # Segredo enviado ao n8n no cabeçalho X-NetSentinel-Secret; o webhook rejeita o resto.
+    N8N_WEBHOOK_SECRET: str = ""
     DISCORD_WEBHOOK_URL: str = ""
     TELEGRAM_BOT_TOKEN: str = ""
     TELEGRAM_CHAT_ID: str = ""

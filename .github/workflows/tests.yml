@@ -24,5 +24,8 @@ jobs:
       - name: Instalar dependências
         run: pip install -r requirements-dev.txt
 
+      - name: Verificar o código com ruff
+        run: ruff check .
+
       - name: Executar os testes
         run: pytest

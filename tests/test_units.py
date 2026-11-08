@@ -48,8 +48,8 @@ def test_rate_limit_allows_requests_when_redis_is_down(monkeypatch):
 def posts(monkeypatch):
     calls = []
 
-    def fake_post(url, json, timeout):
-        calls.append((url, json))
+    def fake_post(url, json, timeout, headers=None):
+        calls.append((url, json, headers))
         return httpx.Response(200, request=httpx.Request("POST", url))
 
     monkeypatch.setattr(notifications.httpx, "post", fake_post)
@@ -64,14 +64,39 @@ THREAT = {"ip_address": "10.0.0.1", "threat_type": "DDoS"}
 def test_high_risk_goes_to_n8n_and_chat(posts):
     notifications.notify_threat({**THREAT, "risk_level": "CRÍTICO"})
 
-    assert [url for url, _ in posts] == ["http://n8n/hook", "http://discord/hook"]
+    assert [url for url, *_ in posts] == ["http://n8n/hook", "http://discord/hook"]
     assert posts[1][1]["allowed_mentions"] == {"parse": []}
 
 
 def test_low_risk_goes_only_to_n8n(posts):
     notifications.notify_threat({**THREAT, "risk_level": "BAIXO"})
 
-    assert [url for url, _ in posts] == ["http://n8n/hook"]
+    assert [url for url, *_ in posts] == ["http://n8n/hook"]
+
+
+def test_n8n_receives_secret_header_but_chat_does_not(posts, monkeypatch):
+    monkeypatch.setattr(notifications.settings, "N8N_WEBHOOK_SECRET", "segredo-de-teste-1234")
+
+    notifications.notify_threat({**THREAT, "risk_level": "CRÍTICO"})
+
+    assert posts[0][2] == {"X-NetSentinel-Secret": "segredo-de-teste-1234"}
+    assert posts[1][2] is None
+
+
+def test_no_secret_header_when_secret_is_not_configured(posts, monkeypatch):
+    monkeypatch.setattr(notifications.settings, "N8N_WEBHOOK_SECRET", "")
+
+    notifications.notify_threat({**THREAT, "risk_level": "BAIXO"})
+
+    assert posts[0][2] is None
+
+
+def test_block_request_carries_secret_header(posts, monkeypatch):
+    monkeypatch.setattr(notifications.settings, "N8N_WEBHOOK_SECRET", "segredo-de-teste-1234")
+
+    notifications.dispatch_block("10.0.0.1", None)
+
+    assert posts[0][2] == {"X-NetSentinel-Secret": "segredo-de-teste-1234"}
 
 
 def test_block_is_not_dispatched_without_n8n(posts, monkeypatch):
@@ -104,3 +129,10 @@ def test_notification_failure_does_not_raise(monkeypatch):
     monkeypatch.setattr(notifications.settings, "N8N_WEBHOOK_URL", "http://n8n/hook")
 
     assert notifications.dispatch_block("10.0.0.1", None) is None
+
+
+def test_unblock_sends_unblock_event(posts):
+    notifications.dispatch_unblock("10.0.0.1")
+
+    assert posts[0][1] == {"event": "ip.unblock", "ip_address": "10.0.0.1"}
+
