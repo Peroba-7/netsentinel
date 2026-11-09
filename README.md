@@ -2,199 +2,213 @@
 
 [![Testes](https://github.com/Peroba-7/netsentinel/actions/workflows/tests.yml/badge.svg)](https://github.com/Peroba-7/netsentinel/actions/workflows/tests.yml)
 
-Plataforma de análise de incidentes de segurança com IA local.
+Plataforma de triagem de incidentes de segurança com IA que corre localmente, sem enviar dados para serviços externos.
+O analista submete um incidente, um modelo no Ollama classifica o risco (BAIXO a CRÍTICO) e escreve um parecer, e o resultado fica guardado com histórico, gráficos e resposta ao incidente.
+O acesso é feito com login e perfis (leitor, analista, admin), e as permissões são aplicadas na própria API.
 
-Um analista submete um incidente no dashboard, um modelo a correr no Ollama classifica o risco e escreve um parecer técnico, e o resultado fica guardado para consulta, relatório e resposta.
-
-> **Projeto para uso local.** O bloqueio de IPs funciona em modo de simulação e nenhuma firewall é alterada. Leia o [aviso de segurança](#aviso-de-segurança) antes de expor qualquer serviço.
+> [!WARNING]
+> **O bloqueio de IPs é simulado.** Nenhuma firewall é alterada: o n8n apenas regista o pedido e responde `bloqueado (simulado)`. O projeto foi configurado para uso local; leia a secção [Segurança](#segurança) antes de expor qualquer serviço.
 
 ## Índice
 
-- [Objetivo](#objetivo)
 - [Funcionalidades](#funcionalidades)
 - [Arquitetura](#arquitetura)
-- [Fluxo de uma análise](#fluxo-de-uma-análise)
-- [Painel](#painel)
-- [Instalação com Docker Compose](#instalação-com-docker-compose)
-- [Desenvolvimento local](#desenvolvimento-local)
-- [Migrações da base de dados](#migrações-da-base-de-dados)
+- [Capturas de ecrã](#capturas-de-ecrã)
+- [Perfis e permissões](#perfis-e-permissões)
+- [Instalação no Windows](#instalação-no-windows)
+- [Variáveis de ambiente](#variáveis-de-ambiente)
+- [Bloqueio de IPs (simulado)](#bloqueio-de-ips-simulado)
 - [API](#api)
-- [Bloqueio de IPs em modo de simulação](#bloqueio-de-ips-em-modo-de-simulação)
-- [Comparação de modelos](#comparação-de-modelos)
-- [Configuração](#configuração)
-- [Aviso de segurança](#aviso-de-segurança)
+- [Classificação de risco pela IA](#classificação-de-risco-pela-ia)
+- [Desenvolvimento e testes](#desenvolvimento-e-testes)
+- [Segurança](#segurança)
 - [Próximos passos](#próximos-passos)
 
-## Objetivo
-
-O NetSentinel ajuda a fazer uma primeira triagem de incidentes de segurança sem enviar dados para serviços externos de IA. O modelo corre na sua própria máquina, e a descrição dos incidentes fica na sua infraestrutura.
-
-A classificação da IA serve de apoio à decisão e não substitui a avaliação de um analista.
+Decisões de arquitetura e as suas razões: [docs/ARQUITETURA.md](docs/ARQUITETURA.md).
 
 ## Funcionalidades
 
-- Análise de incidentes com classificação de risco: BAIXO, MÉDIO, ALTO ou CRÍTICO
-- Parecer técnico com ações recomendadas
-- Histórico com métricas, gráficos e exportação para CSV
-- Pedido de bloqueio de IPs em modo de simulação, permanente ou com prazo
-- Alertas por n8n, Discord e Telegram
-- Login com perfis (leitor, analista e admin), aplicados na API, e gestão de utilizadores
-- Limite de pedidos e bloqueio temporário do login após tentativas falhadas
+**Análise**
+- Classificação de risco por um modelo local (Ollama, `llama3` por omissão) em BAIXO, MÉDIO, ALTO ou CRÍTICO, com parecer técnico e ações recomendadas
+- Critérios objetivos por nível e exemplos no prompt; respostas fora do formato ficam `INDETERMINADO`, em vez de um nível inventado
+- Tipo de ameaça normalizado ao guardar (por exemplo, "SSH Brute Force" e "brute-force" contam como "Brute Force")
+
+**Histórico e relatório**
+- Métricas, gráficos por tipo e por nível de risco, filtros por risco e por texto
+- Exportação para CSV protegida contra fórmulas (as descrições vêm de terceiros)
+
+**Resposta a incidentes**
+- Pedido de bloqueio de IP, permanente ou com prazo (30 min, 1 hora, 24 horas), enviado ao n8n, com o motivo preenchido a partir do incidente
+- Desbloqueio manual e desbloqueio automático no fim do prazo, com nova tentativa se o n8n falhar
+- Alertas de risco ALTO ou CRÍTICO no Discord e no Telegram (opcionais)
+
+**Acesso**
+- Login com perfis leitor, analista e admin, verificados na API em cada rota
+- Gestão de utilizadores no dashboard (admin) e criação do primeiro admin pela linha de comandos
+- Sessões com validade e botão Sair; bloqueio temporário do login após tentativas falhadas
+
+**Operação**
+- Docker Compose com todos os serviços; migrações da base de dados com Alembic, aplicadas no arranque
 - Verificação do estado dos serviços em `/health`
+- Testes automáticos (`pytest`) e análise estática (`ruff`) no GitHub Actions
 
 ## Arquitetura
 
+```mermaid
+flowchart LR
+    user(["Analista no navegador"]) -->|":8501"| dash["Dashboard<br/>Streamlit"]
+    dash -->|"token da sessão<br/>:8000"| api["API<br/>FastAPI + LangGraph"]
+    script(["Scripts / curl"]) -.->|"X-API-Key<br/>(opcional)"| api
+    api -->|"incidentes, bloqueios,<br/>utilizadores, sessões"| pg[("PostgreSQL")]
+    api -->|"limite de pedidos"| redis[("Redis")]
+    api -->|"prompt e resposta"| ollama["Ollama<br/>modelo local"]
+    api -->|"eventos +<br/>X-NetSentinel-Secret"| n8n["n8n<br/>bloqueio simulado"]
+    api -.->|"alertas ALTO/CRÍTICO<br/>(opcional)"| chat["Discord / Telegram"]
+```
+
 | Componente | Função |
 |---|---|
-| **Ollama** | Executa o modelo de IA localmente |
-| **LangGraph** (ecossistema LangChain) | Orquestra o fluxo de análise |
-| **FastAPI** | API, validação de dados e autenticação |
-| **Streamlit** | Dashboard usado pelo analista |
-| **PostgreSQL** | Guarda os incidentes e os IPs bloqueados |
-| **Redis** | Controla o limite de pedidos por minuto |
-| **n8n** | Automatiza alertas e pedidos de bloqueio |
-| **Docker Compose** | Sobe e liga todos os serviços |
+| **Dashboard** (Streamlit) | Ecrãs de login, histórico, submissão de incidentes e utilizadores. Não tem credenciais próprias: fala com a API com o token de quem entrou |
+| **API** (FastAPI) | Autenticação, permissões por perfil, validação, análise e registo. Corre `alembic upgrade head` antes de arrancar |
+| **LangGraph** | Orquestra o fluxo de análise; o Ollama é chamado com o cliente oficial `ollama` |
+| **PostgreSQL** | Incidentes, bloqueios, utilizadores, sessões e tentativas de login |
+| **Redis** | Limite de análises por minuto. Se estiver em baixo, o limite deixa de ser aplicado e a análise continua |
+| **Ollama** | Executa o modelo de IA na própria máquina; só é acessível pela rede interna do Compose |
+| **n8n** | Recebe os eventos da API. O workflow incluído trata o bloqueio e o desbloqueio simulados e confirma a receção dos restantes eventos |
 
-O projeto usa o LangGraph e o `langchain-core`, de que ele depende. A comunicação com o Ollama é feita diretamente com o cliente oficial `ollama`.
+**Fluxo de uma análise:** o dashboard envia o incidente à API com o token da sessão → a API confirma o perfil (analista ou admin) e o limite de pedidos → o LangGraph pede a classificação ao Ollama → a API guarda o incidente no PostgreSQL e responde → em segundo plano, envia o evento ao n8n e, se o risco for ALTO ou CRÍTICO, o alerta ao Discord/Telegram. Uma falha nos alertas não impede a análise.
 
 ```text
 app/
-├── agents/graph.py      Fluxo de análise e leitura da resposta da IA
-├── agents/prompt.py     Instruções, critérios de risco e exemplos dados à IA
-├── api/threats.py       Rotas /threats
-├── core/                Autenticação e limite de pedidos
-├── db/                  Ligação à base de dados e modelos
-├── schemas/             Validação de entradas e respostas
-├── services/            Ollama e notificações
-└── main.py              Aplicação FastAPI e /health
-app_pages/               Páginas do dashboard
-evals/                   Casos de avaliação da classificação de risco
-migrations/              Migrações da base de dados (Alembic)
-n8n/                     Workflow de bloqueio em simulação
-tests/                   Testes automáticos
+├── agents/          Fluxo do LangGraph, prompt e leitura da resposta da IA
+├── api/             Rotas /auth, /threats e /users
+├── core/            Autenticação, perfis, hash de palavras-passe e limite de pedidos
+├── db/              Ligação à base de dados e modelos
+├── schemas/         Validação de entradas e respostas
+├── services/        Ollama, notificações, utilizadores e sessões, tarefa periódica
+├── cli.py           Criação de utilizadores pela linha de comandos
+└── main.py          Aplicação FastAPI e /health
+app_pages/           Páginas do dashboard (login, histórico, submissão, utilizadores)
+evals/               Casos de avaliação da classificação de risco
+migrations/          Migrações da base de dados (Alembic)
+n8n/                 Workflow de bloqueio simulado e scripts de instalação
+tests/               Testes automáticos
 ```
 
-## Fluxo de uma análise
+## Capturas de ecrã
 
-```mermaid
-flowchart TD
-    A[Analista] -->|Submete incidente| B[Dashboard Streamlit]
-    B -->|Token da sessão| C[API FastAPI]
-    C -->|Limite de pedidos| D[(Redis)]
-    C --> E[LangGraph]
-    E -->|Prompt| F[Ollama]
-    F -->|Risco e parecer| E
-    E --> C
-    C -->|Guarda o incidente| G[(PostgreSQL)]
-    C -->|Evento| H[n8n]
-    C -->|Risco ALTO ou CRÍTICO| I[Discord / Telegram]
-    C -->|Resultado| B
-```
+Os dados nas capturas devem ser fictícios (use IPs de documentação, como `203.0.113.x`).
 
-Os alertas são enviados em segundo plano, por isso uma falha no n8n, no Discord ou no Telegram não impede a análise. Se o Redis estiver indisponível, o limite de pedidos deixa de ser aplicado e a análise continua.
+> 📷 **PRINT 1 — Ecrã de login.** Ecrã "Iniciar sessão", sem nenhuma página de dados visível.
+> Ficheiro sugerido: `docs/img/01-login.png`
 
-## Painel
+> 📷 **PRINT 2 — Histórico (perfil admin).** Métricas, gráficos "Ameaças por tipo" e "Níveis de risco", tabela de incidentes com a coluna "IP bloqueado", e a barra lateral com o utilizador, o perfil e o botão Sair.
+> Ficheiro sugerido: `docs/img/02-historico.png`
 
-O painel começa no ecrã de login; sem sessão, nenhuma página mostra dados. Depois de entrar, o menu mostra as páginas do perfil:
+> 📷 **PRINT 3 — Submeter incidente.** Formulário preenchido e o resultado: nível de risco, estado e parecer da IA.
+> Ficheiro sugerido: `docs/img/03-submeter.png`
 
-| Perfil | Pode |
-|---|---|
-| **leitor** | Ver o histórico, os gráficos e os bloqueios |
-| **analista** | O mesmo, mais submeter incidentes e pedir bloqueios |
-| **admin** | O mesmo, mais retirar bloqueios e gerir utilizadores (página **Utilizadores**) |
+> 📷 **PRINT 4 — Resposta a incidentes.** Escolha do IP e da duração do bloqueio, aviso de modo de simulação e tabela "Bloqueios ativos" com a coluna "expira em".
+> Ficheiro sugerido: `docs/img/04-bloqueios.png`
 
-O nome, o perfil e o botão **Sair** ficam na barra lateral. Recarregar a página (F5) pede login de novo, porque a sessão fica guardada só no separador aberto. Os dados mostrados nas imagens são fictícios.
+> 📷 **PRINT 5 — Mesmo ecrã com perfil leitor.** O histórico sem os botões de bloqueio e desbloqueio, e o menu só com "Histórico".
+> Ficheiro sugerido: `docs/img/05-leitor.png`
 
-![Histórico com métricas, gráficos e incidentes registados](docs/dashboard1.png)
+> 📷 **PRINT 6 — Utilizadores (admin).** Lista de utilizadores e os separadores "Criar utilizador" e "Alterar utilizador".
+> Ficheiro sugerido: `docs/img/06-utilizadores.png`
 
-*Histórico: métricas de segurança, gráficos por tipo e por nível de risco, e incidentes registados*
+> 📷 **PRINT 7 — Documentação da API.** Swagger em `http://localhost:8000/docs`, com as rotas `/auth`, `/threats` e `/users`.
+> Ficheiro sugerido: `docs/img/07-swagger.png`
 
-![Formulário de submissão de um novo incidente](docs/dashboard2.png)
+## Perfis e permissões
 
-*Submissão de um novo incidente para análise pela IA*
+As permissões são verificadas **na API**, em cada rota. O dashboard só esconde os botões e as páginas que o perfil não pode usar; quem chamar a API diretamente recebe `403` nas ações não permitidas.
 
-## Instalação com Docker Compose
+| Ação | Rota da API | leitor | analista | admin |
+|---|---|:-:|:-:|:-:|
+| Ver histórico, gráficos e bloqueios | `GET /threats/`, `GET /threats/{id}`, `GET /threats/blocked` | ✅ | ✅ | ✅ |
+| Submeter incidente para análise | `POST /threats/analyze` | ❌ | ✅ | ✅ |
+| Pedir bloqueio de IP | `POST /threats/block` | ❌ | ✅ | ✅ |
+| Retirar bloqueio | `DELETE /threats/block/{ip}` | ❌ | ❌ | ✅ |
+| Listar, criar e alterar utilizadores | `/users/` | ❌ | ❌ | ✅ |
+
+No dashboard, o menu mostra só as páginas do perfil: o leitor vê "Histórico"; o analista também "Submeter incidente"; o admin também "Utilizadores". O sistema não permite retirar o último admin ativo.
+
+A **chave de serviço** (`API_KEY`, opcional) tem acesso de admin e serve para scripts. Só o contentor da API a recebe.
+
+## Instalação no Windows
 
 ### Requisitos
 
-- Docker Desktop ou Docker Engine com Docker Compose
-- Cerca de 8 GB de memória disponível para o Docker com `llama3`
-- Cerca de 15 GB livres em disco para as imagens e o modelo
+- Windows 10 ou 11 com [Docker Desktop](https://www.docker.com/products/docker-desktop/) (motor WSL 2)
+- [Git para Windows](https://git-scm.com/download/win)
+- Cerca de 8 GB de memória disponível para o Docker com `llama3` e 15 GB livres em disco
+- Python só é necessário para desenvolvimento fora do Docker
+
+Os comandos abaixo são para o **PowerShell**, na pasta do projeto.
 
 ### 1. Obter o código
 
-```bash
+```powershell
 git clone https://github.com/Peroba-7/netsentinel.git
 cd netsentinel
 ```
 
 ### 2. Criar o `.env`
 
-```bash
-cp .env.example .env
+```powershell
+Copy-Item .env.example .env
 ```
 
-No `.env`, preencha pelo menos:
+Gere um segredo aleatório (64 caracteres hexadecimais) com este comando. Corra-o uma vez por cada segredo, para que todos sejam diferentes:
+
+```powershell
+$b = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); -join ($b | ForEach-Object { $_.ToString("x2") })
+```
+
+Abra o ficheiro com `notepad .env` e preencha:
 
 | Variável | Valor |
 |---|---|
-| `POSTGRES_PASSWORD` | Uma palavra-passe forte, só com letras e números |
-| `DATABASE_URL` | Substitua `ALTERAR` pela mesma palavra-passe |
+| `POSTGRES_PASSWORD` | Um segredo gerado (só letras e números) |
+| `DATABASE_URL` | Substitua `ALTERAR` pelo mesmo valor; é usado fora do Docker |
+| `N8N_WEBHOOK_SECRET` | Outro segredo gerado; sem ele, os pedidos de bloqueio são recusados |
+| `API_KEY` | Opcional: outro segredo, só se for usar scripts ou `curl` sem login |
 
-Se for usar scripts ou `curl` sem login, gere também uma chave de serviço para `API_KEY` (mínimo de 16 caracteres; dá acesso total, por isso guarde-a bem):
-
-```bash
-python -c "import secrets; print(secrets.token_urlsafe(32))"
-```
-
-O ficheiro `.env` guarda segredos e nunca deve entrar no git.
+Guarde o ficheiro em UTF-8 no Bloco de Notas. Não acrescente linhas com `>>` no PowerShell 5.1: grava em UTF-16 e estraga o ficheiro. O `.env` guarda segredos e nunca deve entrar no git (já está no `.gitignore`).
 
 ### 3. Subir os serviços
 
-```bash
+```powershell
 docker compose up -d --build
+docker compose ps
 ```
 
-Ao arrancar, a API aplica as [migrações da base de dados](#migrações-da-base-de-dados) antes de aceitar pedidos.
-
-Na primeira execução, o serviço `ollama-pull` descarrega o modelo definido em `OLLAMA_MODEL`, o que pode demorar vários minutos. Esse serviço termina quando acaba, por isso é normal aparecer como `Exited`.
+Ao arrancar, a API aplica as migrações da base de dados. Na primeira execução, o serviço `ollama-pull` descarrega o modelo, o que pode demorar vários minutos; quando acaba, aparece como `Exited`, o que é normal.
 
 ### 4. Criar o primeiro admin
 
-O dashboard só abre com login. Crie o primeiro utilizador pela linha de comandos; a palavra-passe (mínimo de 12 caracteres) é pedida no terminal, sem aparecer no ecrã, e nunca fica no `.env` nem no código:
+O dashboard só abre com login. A palavra-passe (mínimo de 12 caracteres) é pedida no terminal, sem aparecer no ecrã, e não fica guardada em nenhum ficheiro:
 
-```bash
+```powershell
 docker exec -it netsentinel-api python -m app.cli create-user admin --role admin
 ```
 
-Os restantes utilizadores podem ser criados por esse admin, na página **Utilizadores** do dashboard. Para trocar uma palavra-passe esquecida (termina as sessões abertas dessa conta):
+Os outros utilizadores são criados por esse admin, na página **Utilizadores**. Para repor uma palavra-passe esquecida (termina as sessões abertas dessa conta):
 
-```bash
+```powershell
 docker exec -it netsentinel-api python -m app.cli set-password admin
 ```
 
 ### 5. Instalar o workflow do n8n
 
-Sem este passo, os pedidos de bloqueio não são aceites. O webhook exige o cabeçalho `X-NetSentinel-Secret`, por isso primeiro defina o segredo no `.env`:
-
-Gere um segredo com `python -c "import secrets; print(secrets.token_urlsafe(32))"` e cole-o no `.env` (um valor diferente do da `API_KEY`):
-
-```text
-N8N_WEBHOOK_SECRET=o_segredo_gerado
-```
-
-Edite o `.env` num editor de texto. Evite `>>` no PowerShell, que grava em UTF-16 e estraga o ficheiro.
-
-Depois instale o workflow e a credencial no n8n (o script lê o segredo do `.env`, importa, publica e reinicia o n8n):
+O script lê o `N8N_WEBHOOK_SECRET` do `.env`, importa o workflow e a credencial, e publica o workflow:
 
 ```powershell
-.\n8n\install-workflow.ps1      # Windows
-```
-```bash
-./n8n/install-workflow.sh        # Linux e macOS
+powershell -ExecutionPolicy Bypass -File .\n8n\install-workflow.ps1
 ```
 
-Se mudar o `N8N_WEBHOOK_SECRET`, volte a executar o script e reinicie a API (`docker compose up -d`).
+O `-ExecutionPolicy Bypass` aplica-se só a este comando; é necessário porque o Windows bloqueia scripts por omissão. Se mudar o `N8N_WEBHOOK_SECRET`, corra o script de novo e reinicie a API com `docker compose up -d`.
 
 ### 6. Abrir
 
@@ -204,141 +218,109 @@ Se mudar o `N8N_WEBHOOK_SECRET`, volte a executar o script e reinicie a API (`do
 | Documentação da API (Swagger) | http://localhost:8000/docs |
 | n8n | http://localhost:5678 |
 
-Confirme que tudo está ligado:
+Confirme que os serviços estão ligados (no PowerShell 5.1, `curl` é outro comando; use `curl.exe`):
 
-```bash
-curl http://localhost:8000/health
+```powershell
+curl.exe http://localhost:8000/health
 ```
 
-O PostgreSQL, o Redis e estes serviços só aceitam ligações desta máquina (`127.0.0.1`). O Ollama do Docker só é acessível pela rede interna do Compose, o que evita conflitos com um Ollama instalado na máquina.
+A resposta indica o estado da base de dados, do Redis e do Ollama. Todas as portas só aceitam ligações desta máquina (`127.0.0.1`).
 
-## Desenvolvimento local
+**Linux e macOS:** os passos são os mesmos, com `cp .env.example .env`, `python -c "import secrets; print(secrets.token_hex(32))"` para gerar segredos e `./n8n/install-workflow.sh` no passo 5.
 
-Com o PostgreSQL e o Ollama a correr:
+## Variáveis de ambiente
 
-```bash
-python -m venv venv
-venv\Scripts\activate               # Windows
-source venv/bin/activate            # Linux e macOS
-pip install -r requirements-dev.txt
+Todas estão em [.env.example](.env.example). O contentor do dashboard só recebe `API_URL` e `OLLAMA_TIMEOUT_SECONDS`.
 
-alembic upgrade head                # cria ou atualiza as tabelas
-python -m app.cli create-user admin --role admin   # só da primeira vez
-uvicorn app.main:app --reload       # API
-streamlit run dashboard.py          # dashboard, noutro terminal
+| Variável | Obrigatória | Descrição |
+|---|---|---|
+| `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | Com Docker | Credenciais do PostgreSQL |
+| `DATABASE_URL` | Sim | Ligação ao PostgreSQL; no Docker, o Compose monta-a a partir das variáveis acima |
+| `API_KEY` | Não | Chave de serviço com acesso total, para scripts (mínimo de 16 caracteres). Vazia, fica desativada |
+| `SESSION_TTL_MINUTES` | Não | Validade de uma sessão de login; predefinido 480 (8 horas) |
+| `LOGIN_MAX_ATTEMPTS` | Não | Tentativas falhadas antes do bloqueio do login; predefinido 5 |
+| `LOGIN_LOCK_MINUTES` | Não | Duração do bloqueio do login; predefinido 15 |
+| `REDIS_URL` | Não | Ligação ao Redis |
+| `RATE_LIMIT_PER_MINUTE` | Não | Análises por cliente, por minuto; predefinido 10, 0 desativa |
+| `OLLAMA_URL` | Não | Endereço do Ollama |
+| `OLLAMA_MODEL` | Não | Modelo de IA; predefinido `llama3` |
+| `OLLAMA_TIMEOUT_SECONDS` | Não | Tempo máximo de resposta do modelo; predefinido 300 |
+| `BLOCK_EXPIRY_INTERVAL_SECONDS` | Não | Intervalo da tarefa que retira bloqueios vencidos e limpa sessões antigas; predefinido 60, 0 desativa |
+| `N8N_WEBHOOK_URL` | Não | Webhook do n8n que recebe os eventos |
+| `N8N_WEBHOOK_SECRET` | Com n8n | Segredo enviado no cabeçalho `X-NetSentinel-Secret`; o webhook recusa pedidos sem ele |
+| `DISCORD_WEBHOOK_URL` | Não | Alertas de risco ALTO e CRÍTICO no Discord |
+| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | Não | Alertas de risco ALTO e CRÍTICO no Telegram |
+| `API_URL` | Dashboard | Endereço da API usado pelo dashboard |
+
+## Bloqueio de IPs (simulado)
+
+> [!IMPORTANT]
+> **Nenhuma firewall é alterada.** O nó "Firewall (SIMULADO)" do workflow do n8n só regista o pedido no log e responde `bloqueado (simulado)`. O dashboard mostra "Sim (simulado)" e um aviso de modo de simulação.
+
+1. Um analista ou admin pede o bloqueio no dashboard (ou em `POST /threats/block`), escolhendo a duração.
+2. A API regista o pedido e envia o evento `ip.block` ao n8n, com o motivo (por exemplo, `Brute Force, risco ALTO`).
+3. O n8n valida o IP e responde `bloqueado (simulado)`; a API guarda essa resposta.
+4. No histórico, todos os incidentes desse IP mostram "IP bloqueado: Sim (simulado)". O estado de cada incidente continua `ANALISADO`, porque o bloqueio é do IP e não do incidente.
+
+Se o n8n não aceitar o pedido, o IP fica como "não enviado" e o pedido pode ser repetido. Um desbloqueio, manual ou no fim do prazo, só remove o registo se o n8n o aceitar, para a API nunca indicar como livre um IP que pode continuar bloqueado. Se falhar, o bloqueio mantém-se registado: o desbloqueio manual devolve um erro e pode ser repetido, e o do fim do prazo é tentado de novo pela tarefa periódica no minuto seguinte.
+
+Eventos que o webhook recebe:
+
+```json
+{"event": "threat.analyzed", "id": 1, "ip_address": "203.0.113.7", "risk_level": "ALTO", "...": "..."}
+{"event": "ip.block", "ip_address": "203.0.113.7", "reason": "Brute Force, risco ALTO"}
+{"event": "ip.unblock", "ip_address": "203.0.113.7"}
 ```
 
-Verificações de qualidade:
+Para ver os bloqueios simulados: `docker logs netsentinel-n8n 2>&1 | Select-String NETSENTINEL-BLOCK` (no Linux, `| grep NETSENTINEL-BLOCK`).
 
-```bash
-pytest
-ruff check .
-```
-
-Os testes usam uma base de dados em memória e simulam a IA, por isso não precisam do Docker nem do Ollama.
-
-## Migrações da base de dados
-
-As tabelas são geridas pelo [Alembic](https://alembic.sqlalchemy.org/). Cada alteração ao esquema é um ficheiro em `migrations/versions/`, aplicado por ordem. A ligação vem do `DATABASE_URL` do `.env`, por isso o `alembic.ini` não guarda palavras-passe.
-
-A API não cria tabelas sozinha. No Docker, o contentor da API corre `alembic upgrade head` antes do `uvicorn`; se uma migração falhar, a API não arranca e o erro aparece em `docker compose logs api`. Fora do Docker, corra o mesmo comando antes de iniciar a API.
-
-**Bases criadas antes do Alembic.** A migração inicial (`0001`) só cria as tabelas que ainda não existem. Numa base já em uso, não altera nada e fica apenas registada como aplicada, sem apagar dados. Também pode marcá-la à mão, sem executar nada:
-
-```bash
-alembic stamp 0001
-```
-
-**Criar uma nova migração**, depois de alterar um modelo em `app/db/models.py`:
-
-```bash
-alembic revision --autogenerate -m "descrição curta" --rev-id 0004
-```
-
-1. Reveja o ficheiro gerado em `migrations/versions/`: o Alembic não deteta tudo (por exemplo, mudanças de nome de colunas aparecem como apagar e criar).
-2. Aplique com `alembic upgrade head` e confirme com `alembic current`.
-3. Corra `pytest`: um teste falha se as migrações não corresponderem aos modelos.
-
-Tabelas que não pertencem aos modelos (como a antiga `threat_logs`) são ignoradas, para uma migração automática nunca as apagar. Antes de aplicar migrações a dados reais, faça uma cópia de segurança:
-
-```bash
-docker exec netsentinel-postgres sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' > backup.sql
-```
+**Para usar uma firewall real**, só o nó "Firewall (SIMULADO)" tem de mudar: por exemplo, para um nó SSH que execute `ufw` ou `iptables` no servidor (o n8n corre num contentor, por isso um comando local não afetaria o servidor), seguido de um nó que responda com `status` igual a `bloqueado`. Mantenha o nó "Validar IP", que impede a injeção de comandos, use uma conta SSH só com essas permissões e teste primeiro com um IP inofensivo. Os bloqueios já aceites em simulação não são reenviados: retire-os e peça-os de novo.
 
 ## API
 
-A documentação interativa está em **http://localhost:8000/docs**.
+Documentação interativa em **http://localhost:8000/docs**.
 
-![Documentação interativa da API (Swagger)](docs/api-docs.jpg)
-
-*Documentação interativa da API (Swagger)*
-
-### Autenticação
-
-Há duas formas de autenticar um pedido:
-
-- **Sessão de utilizador** (pessoas): `POST /auth/login` devolve um `token`, enviado depois no cabeçalho `Authorization: Bearer <token>`. A sessão expira ao fim de `SESSION_TTL_MINUTES` (8 horas por omissão) e termina com `POST /auth/logout`. É assim que o dashboard fala com a API.
-- **Chave de serviço** (`X-API-Key`): acesso total, para scripts e integrações. Só existe na API, no `.env`; fica desativada se `API_KEY` estiver vazia.
-
-As permissões são verificadas na API, por isso valem também para quem a chamar diretamente:
+**Autenticação.** Pessoas usam sessões: `POST /auth/login` devolve um `token`, enviado depois em `Authorization: Bearer <token>`; `POST /auth/logout` invalida-o. Scripts podem usar a chave de serviço no cabeçalho `X-API-Key`.
 
 | Método | Rota | Perfil mínimo | Descrição |
 |---|---|---|---|
-| `GET` | `/` | Público | Confirma que a API está ativa |
-| `GET` | `/health` | Público | Estado da base de dados, do Redis e do Ollama |
+| `GET` | `/`, `/health` | Público | API ativa; estado da base de dados, do Redis e do Ollama |
 | `POST` | `/auth/login` | Público | Inicia sessão; devolve o token, o perfil e a validade |
 | `POST` | `/auth/logout` | Qualquer sessão | Termina a sessão |
 | `GET` | `/auth/me` | Qualquer sessão | Utilizador e perfil da sessão |
-| `GET` | `/threats/` | leitor | Lista incidentes, com `limit`, `offset` e os filtros `risk_level`, `ip_address` e `search` |
+| `GET` | `/threats/` | leitor | Lista incidentes (`limit`, `offset`, filtros `risk_level`, `ip_address` e `search`) |
 | `GET` | `/threats/{id}` | leitor | Devolve um incidente |
 | `GET` | `/threats/blocked` | leitor | Lista os IPs com bloqueio pedido |
 | `POST` | `/threats/analyze` | analista | Analisa e guarda um incidente |
-| `POST` | `/threats/block` | analista | Regista um bloqueio e envia o pedido ao n8n; `duration_minutes` (1 a 10080) opcional |
-| `DELETE` | `/threats/block/{ip}` | admin | Retira o bloqueio; o n8n tem de aceitar o desbloqueio |
+| `POST` | `/threats/block` | analista | Pede um bloqueio; `duration_minutes` (1 a 10080) opcional |
+| `DELETE` | `/threats/block/{ip}` | admin | Retira um bloqueio |
 | `GET`, `POST` | `/users/` | admin | Lista e cria utilizadores |
 | `PATCH` | `/users/{id}` | admin | Altera perfil, estado ou palavra-passe |
 
-### Exemplo
+**Exemplo no PowerShell** (o `Get-Credential` pede o utilizador e a palavra-passe sem mostrar a palavra-passe nem a guardar no histórico):
 
-Inicie sessão e guarde o token (o `read -s` pede a palavra-passe sem a mostrar nem a guardar no histórico do terminal):
+```powershell
+$cred = Get-Credential
+$body = @{ username = $cred.UserName; password = $cred.GetNetworkCredential().Password } | ConvertTo-Json
+$session = Invoke-RestMethod -Method Post -Uri http://localhost:8000/auth/login -ContentType "application/json" -Body $body
+$headers = @{ Authorization = "Bearer $($session.token)" }
+
+Invoke-RestMethod -Method Post -Uri http://localhost:8000/threats/analyze -Headers $headers -ContentType "application/json" `
+  -Body '{"ip_address": "203.0.113.7", "threat_type": "Brute Force", "description": "500 failed SSH logins in 2 minutes against root."}'
+```
+
+O mesmo com `curl` no Linux ou no Git Bash:
 
 ```bash
 read -s -p "Palavra-passe: " PASS; echo
-TOKEN=$(curl -s -X POST http://localhost:8000/auth/login \
-  -H "Content-Type: application/json" \
+TOKEN=$(curl -s -X POST http://localhost:8000/auth/login -H "Content-Type: application/json" \
   -d "{\"username\": \"ana\", \"password\": \"$PASS\"}" | python -c "import json,sys; print(json.load(sys.stdin)['token'])")
 unset PASS
-```
 
-Depois use o token nos pedidos:
-
-```bash
 curl -X POST http://localhost:8000/threats/analyze \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "ip_address": "203.0.113.7",
-    "threat_type": "Brute Force",
-    "description": "500 tentativas de login SSH falhadas em 2 minutos contra a conta root."
-  }'
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"ip_address": "203.0.113.7", "threat_type": "Brute Force", "description": "500 tentativas de login SSH falhadas em 2 minutos contra a conta root."}'
 ```
-
-Resposta abreviada:
-
-```json
-{
-  "id": 1,
-  "ip_address": "203.0.113.7",
-  "threat_type": "Brute Force",
-  "risk_level": "ALTO",
-  "ai_analysis": "Parecer técnico com as ações recomendadas.",
-  "status": "ANALISADO",
-  "ip_blocked": false,
-  "ip_block_result": null
-}
-```
-
-### Códigos de resposta
 
 | Código | Significado |
 |---|---|
@@ -346,177 +328,94 @@ Resposta abreviada:
 | `401` | Sem sessão, sessão expirada ou chave de serviço inválida |
 | `403` | O perfil não tem permissão para esta ação |
 | `422` | Dados inválidos, por exemplo um IP incorreto |
-| `429` | Limite de pedidos excedido, ou login bloqueado por tentativas falhadas |
+| `429` | Limite de análises excedido, ou login bloqueado por tentativas falhadas |
 | `503` | Modelo de IA indisponível; nada é guardado |
 
-## Bloqueio de IPs em modo de simulação
+## Classificação de risco pela IA
 
-**Nenhuma firewall é alterada.** Um pedido de bloqueio percorre este caminho:
+O prompt ([app/agents/prompt.py](app/agents/prompt.py)) define critérios por nível (número de tentativas, sucesso depois de falhas, conta privilegiada, origem conhecida), trata o campo "Tipo" como suspeita e não como conclusão, e inclui quatro exemplos curtos, um deles benigno. O texto do incidente vai entre delimitadores `<incidente>`, e o modelo é instruído a não seguir instruções que apareçam lá dentro.
 
-1. O analista pede o bloqueio no dashboard, ou na rota `POST /threats/block`.
-2. A API regista o pedido e envia-o ao n8n.
-3. O n8n valida o IP, escreve no log e responde `bloqueado (simulado)`.
-4. A API guarda a resposta, e o histórico mostra "Sim (simulado)" na coluna **IP bloqueado**.
+[evals/incidents.json](evals/incidents.json) tem 10 incidentes com o nível esperado. Os testes usam-nos com o Ollama simulado; para medir o modelo real (sem gravar incidentes nem enviar alertas):
 
-O bloqueio é do IP, não do incidente: todos os incidentes desse IP mostram "IP bloqueado", mas o estado de cada um continua `ANALISADO`. Na API, os incidentes trazem `ip_blocked` e `ip_block_result`.
-
-Se o n8n não aceitar o pedido, o IP fica com `dispatched: false`, não aparece como bloqueado e o pedido pode ser repetido.
-
-O motivo enviado pelo dashboard é o tipo e o risco do incidente mais recente do IP, por exemplo `Brute Force, risco ALTO`.
-
-### Bloqueios com prazo
-
-No dashboard, escolha a duração (30 min, 1 hora, 24 horas ou Permanente); na API, envie `duration_minutes`, de 1 a 10080 (7 dias). Sem duração, o bloqueio é permanente. A coluna "expira em" de **Bloqueios ativos** mostra o fim do prazo, em UTC.
-
-```bash
-curl -X POST http://localhost:8000/threats/block \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"ip_address": "203.0.113.7", "duration_minutes": 60}'
-```
-
-Uma tarefa dentro da API verifica os prazos a cada minuto (`BLOCK_EXPIRY_INTERVAL_SECONDS`). Quando um prazo acaba, envia `ip.unblock` ao n8n, como o desbloqueio manual, e só remove o registo se o n8n aceitar. Se o n8n falhar, o bloqueio mantém-se e é tentado de novo no minuto seguinte. Um pedido que o n8n nunca aceitou é apenas removido.
-
-Pedir de novo um bloqueio já aceite não altera o prazo: retire o bloqueio e peça-o outra vez. A tarefa corre no processo da API; com vários workers do `uvicorn`, cada um teria a sua.
-
-Para ver os bloqueios registados:
-
-```bash
-docker logs netsentinel-n8n 2>&1 | grep NETSENTINEL-BLOCK
-```
-
-Este log perde-se quando o contentor é recriado. O registo permanente fica na tabela `blocked_ips` e no histórico de execuções do n8n.
-
-### Eventos do webhook
-
-O webhook `netsentinel` recebe três eventos:
-
-```json
-{"event": "threat.analyzed", "id": 1, "ip_address": "203.0.113.7", "risk_level": "ALTO"}
-{"event": "ip.block", "ip_address": "203.0.113.7", "reason": "Brute Force, risco ALTO"}
-{"event": "ip.unblock", "ip_address": "203.0.113.7"}
-```
-
-### Trocar a simulação por uma firewall real
-
-Só o nó **Firewall (SIMULADO)** precisa de mudar. A API e o dashboard mostram o estado que o workflow devolver.
-
-1. Substitua o nó por um nó **SSH** ligado ao servidor com a firewall, com um destes comandos:
-
-   ```bash
-   sudo ufw deny from {{ $json.ip_address }}
-   sudo iptables -I INPUT -s {{ $json.ip_address }} -j DROP
-   ```
-
-   O SSH é necessário porque o n8n corre num contentor: um comando local alteraria o contentor, não o servidor.
-
-2. Depois do nó SSH, adicione um nó **Set** que defina `status` como `bloqueado`, `simulated` como `false` e mantenha `ip_address`. Este nó só deve ser alcançado se o comando tiver sucesso.
-3. Mantenha o nó **Validar IP**: é ele que impede a injeção de comandos.
-4. O webhook já exige o cabeçalho `X-NetSentinel-Secret`: mantenha-o ao trocar o nó e use um segredo exclusivo.
-5. Use uma conta SSH só com permissão para estes comandos, e teste primeiro com um IP inofensivo, porque um IP errado pode cortar o seu próprio acesso.
-6. Apague de `blocked_ips` os IPs bloqueados em simulação e peça o bloqueio de novo, porque um pedido já aceite não é reenviado.
-
-## Comparação de modelos
-
-Os dois modelos foram testados pela API com os mesmos dois incidentes fictícios, em Docker, só com CPU (4 CPUs e 8 GB de memória).
-
-| Incidente | `gemma:2b` | `llama3` |
-|---|---|---|
-| 500 logins SSH falhados em 2 minutos contra `root` | CRÍTICO | ALTO |
-| Varrimento de 2000 portas | CRÍTICO | MÉDIO |
-
-| Critério | `gemma:2b` | `llama3` |
-|---|---|---|
-| Tamanho do modelo | 1,7 GB | 4,7 GB |
-| Tempo com o modelo carregado | 6 a 8 s | 42 a 67 s |
-| Distinção entre os dois incidentes | Não | Sim |
-| Qualidade do parecer | Respostas por vezes repetitivas | Respostas mais claras e organizadas |
-
-**Recomendação:** use `llama3`, que é o valor predefinido. Separou os dois incidentes e deu a mesma classificação nas duas repetições. O `gemma:2b` compensa quando a velocidade ou a memória pesam mais do que a qualidade da classificação.
-
-**Limites deste teste:** a amostra é muito pequena (dois incidentes, com poucas repetições por modelo), por isso serve de indicação e não de avaliação rigorosa. Os tempos dependem do hardware. Em qualquer modelo, o primeiro pedido demora mais, porque tem de carregar o modelo; por isso o limite predefinido é de 300 segundos.
-
-Para trocar de modelo, altere `OLLAMA_MODEL` no `.env` e aplique:
-
-```bash
-docker compose up -d
-```
-
-### Critérios de risco e avaliação
-
-O prompt em [app/agents/prompt.py](app/agents/prompt.py) define critérios objetivos por nível (número de tentativas, sucesso depois de falhas, conta privilegiada, origem conhecida) e dá ao modelo quatro exemplos curtos, incluindo um caso benigno. O campo "Tipo" é tratado como suspeita de quem registou o incidente, não como conclusão: um utilizador que erra a palavra-passe duas vezes e entra a partir do escritório é BAIXO, mesmo registado como "Brute Force".
-
-[evals/incidents.json](evals/incidents.json) tem 10 incidentes com o nível esperado. O `pytest` usa-os com o Ollama simulado, para garantir que os critérios chegam ao modelo e que uma resposta fora do formato fica INDETERMINADO. Para medir o modelo real, sem gravar incidentes nem enviar alertas:
-
-```bash
+```powershell
 docker cp evals netsentinel-api:/tmp/evals
-docker exec -w /app -e PYTHONPATH=/app netsentinel-api \
-  python /tmp/evals/run_live.py /tmp/evals/incidents.json --repeat 3
+docker exec -w /app -e PYTHONPATH=/app netsentinel-api python /tmp/evals/run_live.py /tmp/evals/incidents.json --repeat 3
 ```
 
-No Git Bash do Windows, corra antes `export MSYS_NO_PATHCONV=1`, para os caminhos `/tmp` não serem convertidos.
+Resultado com `llama3`, só com CPU (novembro de 2026): os 10 casos corretos numa passagem; nos três casos reais repetidos três vezes, 8 de 9 corretos (um DDoS saiu CRÍTICO em vez de ALTO). Com o prompt anterior, um login benigno ("errou a senha duas vezes e entrou a partir do escritório") saía MÉDIO nas três repetições; agora sai BAIXO. A amostra é pequena e o modelo pode errar: a classificação apoia a decisão do analista, não a substitui.
 
-Resultado com `llama3` (novembro de 2026): os 10 casos corretos numa passagem. Nos três casos reais repetidos três vezes, 8 de 9 corretos: o DDoS saiu uma vez CRÍTICO em vez de ALTO. Com o prompt anterior, o caso benigno saía MÉDIO nas três repetições. O modelo continua a poder errar; confirme sempre a classificação.
+Numa comparação anterior com dois incidentes, o `gemma:2b` respondeu em 6 a 8 s e o `llama3` em 42 a 67 s (CPU, com o modelo carregado), mas só o `llama3` distinguiu os dois incidentes. Para trocar de modelo, altere `OLLAMA_MODEL` e corra `docker compose up -d`.
 
-## Configuração
+## Desenvolvimento e testes
 
-Todas as variáveis estão em [.env.example](.env.example).
+Com o PostgreSQL e o Ollama acessíveis (por exemplo, os do Docker):
 
-| Variável | Obrigatória | Descrição |
-|---|---|---|
-| `API_KEY` | Não | Chave de serviço com acesso total, para scripts e integrações (mínimo de 16 caracteres); vazia, fica desativada. Só a API a recebe |
-| `DATABASE_URL` | Sim | Ligação ao PostgreSQL |
-| `SESSION_TTL_MINUTES` | Não | Validade de uma sessão de login; o predefinido é 480 (8 horas) |
-| `LOGIN_MAX_ATTEMPTS`, `LOGIN_LOCK_MINUTES` | Não | Tentativas falhadas antes do bloqueio do login, e a sua duração; predefinidos 5 e 15 |
-| `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | Com Docker | Credenciais do PostgreSQL |
-| `OLLAMA_MODEL` | Não | Modelo de IA; o predefinido é `llama3` |
-| `OLLAMA_TIMEOUT_SECONDS` | Não | Tempo máximo de resposta do modelo; o predefinido é 300 |
-| `RATE_LIMIT_PER_MINUTE` | Não | Análises por cliente, por minuto; 0 desativa |
-| `BLOCK_EXPIRY_INTERVAL_SECONDS` | Não | Intervalo da verificação de bloqueios com prazo; o predefinido é 60, 0 desativa |
-| `N8N_WEBHOOK_URL` | Não | Endereço do webhook do n8n |
-| `N8N_WEBHOOK_SECRET` | Com n8n | Segredo enviado no cabeçalho `X-NetSentinel-Secret`; o webhook rejeita pedidos sem ele |
-| `DISCORD_WEBHOOK_URL` | Não | Webhook para alertas no Discord |
-| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | Não | Bot e conversa para alertas no Telegram |
+```powershell
+python -m venv venv
+venv\Scripts\activate
+pip install -r requirements-dev.txt
 
-## Aviso de segurança
+alembic upgrade head
+python -m app.cli create-user admin --role admin    # só da primeira vez
+uvicorn app.main:app --reload                       # API
+streamlit run dashboard.py                          # dashboard, noutro terminal
+```
 
-**Este projeto foi configurado apenas para uso local.** Não o exponha à internet nem a uma rede partilhada na configuração atual.
+```powershell
+pytest
+ruff check .
+```
 
-- **Webhook com segredo partilhado:** o webhook do n8n rejeita pedidos sem o cabeçalho `X-NetSentinel-Secret`, mas o segredo viaja sem HTTPS. Quem o obtiver pode enviar eventos; com uma firewall real passaria a controlá-la.
-- **Login sem HTTPS:** o dashboard exige login e a API aplica os perfis, mas as palavras-passe e os tokens viajam sem cifra entre o navegador, o dashboard e a API. Na configuração atual isso só acontece dentro desta máquina.
-- **Chave de serviço:** a `API_KEY` dá acesso total à API. Só o contentor da API a recebe (o do dashboard não tem chaves nem credenciais da base de dados); deixe-a vazia se não precisar dela.
-- **Bloqueio do login por nome:** depois de 5 tentativas falhadas, o nome fica bloqueado 15 minutos, exista a conta ou não. Alguém pode bloquear de propósito o login de outra pessoa durante esse tempo.
-- **n8n sem HTTPS:** o tráfego entre os serviços e o painel do n8n não é cifrado.
-- **Conteúdo não confiável:** as descrições de incidentes podem tentar manipular a IA. O sistema instrui o modelo a não seguir instruções nesses dados, mas isto reduz o risco sem o eliminar. Confirme sempre as conclusões antes de agir.
-- **Decisão humana:** um bloqueio deve ser decidido por uma pessoa, e não a partir da classificação da IA de forma automática.
+Os testes usam uma base de dados SQLite em memória e simulam o Ollama, o n8n e a API (no caso do dashboard), por isso não precisam do Docker. Cobrem, entre outros: login certo e errado, bloqueio por tentativas, sessões expiradas e terminadas, o que cada perfil pode fazer em cada rota, o que cada perfil vê no dashboard, as migrações face aos modelos, a expiração dos bloqueios e a leitura das respostas da IA. O GitHub Actions corre `ruff` e `pytest` em cada push.
 
-Antes de usar fora desta máquina, é necessário:
+**Migrações.** O esquema é gerido pelo Alembic (`migrations/versions/`). Depois de alterar um modelo em `app/db/models.py`:
 
-1. Manter as portas em `127.0.0.1`, ou colocar os serviços atrás de um proxy com autenticação e HTTPS.
-2. Usar um `N8N_WEBHOOK_SECRET` forte e exclusivo, e HTTPS entre a API e o n8n.
-3. Usar segredos fortes e exclusivos em `API_KEY` e `POSTGRES_PASSWORD`, e nunca os colocar no git.
+```powershell
+alembic revision --autogenerate -m "descricao curta" --rev-id 0004
+alembic upgrade head
+```
+
+Reveja o ficheiro gerado antes de o aplicar, e faça uma cópia de segurança antes de migrar dados reais:
+
+```powershell
+docker exec netsentinel-postgres sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' > backup.sql
+```
+
+No PowerShell 5.1, o `>` grava em UTF-16; para um ficheiro UTF-8, use o Git Bash ou o PowerShell 7. Os ficheiros `backup*.sql` estão no `.gitignore`.
+
+## Segurança
+
+### O que foi feito
+
+- **Permissões na API.** Cada rota exige um perfil mínimo; o dashboard não tem nenhuma chave mestra e usa o token de quem entrou. Sem sessão a API responde `401`; sem permissão, `403`.
+- **Palavras-passe** guardadas só como hash argon2id (mínimo de 12 caracteres). O primeiro admin é criado pela linha de comandos, com a palavra-passe pedida no terminal.
+- **Sessões** com token aleatório, guardado na base de dados só como hash SHA-256, com validade configurável. Sair, desativar a conta ou trocar a palavra-passe invalida as sessões.
+- **Login sem revelar contas.** A mesma mensagem para utilizador inexistente, desativado ou palavra-passe errada, e um tempo de resposta equivalente (quando a conta não existe, é verificado um hash falso com o mesmo custo). As tentativas contam por nome, exista a conta ou não, e bloqueiam o login durante 15 minutos depois de 5 falhas.
+- **Contentor do dashboard sem credenciais.** Não recebe a `API_KEY`, a palavra-passe do PostgreSQL nem os segredos do n8n e dos alertas.
+- **Portas só em `127.0.0.1`**; o Ollama só é acessível pela rede interna do Compose.
+- **Webhook do n8n autenticado** com o cabeçalho `X-NetSentinel-Secret`; o IP é validado antes de chegar ao nó da firewall.
+- **Dados não confiáveis tratados como tal:** delimitadores no prompt da IA, CSV exportado sem fórmulas e alertas do Discord sem menções.
+- **Segredos fora do repositório:** `.env` e cópias de segurança no `.gitignore` e no `.dockerignore`; o `alembic.ini` lê a ligação das configurações.
+
+### Limitações conhecidas
+
+- **Sem HTTPS.** Palavras-passe, tokens e o segredo do webhook viajam sem cifra entre os serviços. Na configuração atual, isso só acontece dentro desta máquina.
+- **Bloqueio de IPs simulado.** Ligar uma firewall real exige alterar o workflow do n8n e testar com cuidado.
+- **Bloqueio do login por nome.** Alguém pode bloquear de propósito o login de outra pessoa durante 15 minutos.
+- **Chave de serviço com acesso total.** Se for usada, quem a tiver é admin; deixe-a vazia se não for necessária.
+- **Sessão do dashboard por separador.** Recarregar a página (F5) pede login de novo.
+- **Limite de análises por IP.** Todos os utilizadores do dashboard partilham o mesmo IP de origem, e por isso o mesmo limite. Se o Redis falhar, o limite deixa de ser aplicado.
+- **Sem registo de auditoria** de quem pediu cada bloqueio ou alterou cada utilizador.
+- **Manipulação da IA.** As instruções e os delimitadores reduzem o risco de um incidente manipular o modelo, mas não o eliminam. O bloqueio é sempre uma decisão humana: a classificação nunca bloqueia um IP sozinha.
+- **Uma tarefa por processo.** A tarefa periódica corre dentro da API; com vários workers do `uvicorn`, cada um teria a sua.
+
+Antes de usar fora desta máquina: coloque os serviços atrás de um proxy com HTTPS, mantenha as portas fechadas ao exterior e use segredos fortes e exclusivos em todas as variáveis.
 
 ## Próximos passos
 
-**Segurança**
-
-- [x] Autenticação no webhook do n8n
-- [x] Login no dashboard, com perfis de utilizador
-- [ ] Registo de quem pediu cada bloqueio e troca da própria palavra-passe
-- [ ] Proxy com HTTPS
-
-**Funcionalidades**
-
 - [ ] Integração com uma firewall real (`ufw` ou `iptables`)
-- [x] Desbloqueio de IPs
-- [x] Bloqueios com prazo
-- [x] Filtros e pesquisa no histórico
+- [ ] Proxy com HTTPS
+- [ ] Registo de auditoria e troca da própria palavra-passe
 - [ ] Fluxo do LangGraph com mais etapas, como enriquecimento de IPs
-
-**Qualidade e operação**
-
-- [x] Migrações da base de dados com Alembic
-- [x] Integração contínua com testes e `ruff`
 - [ ] Avaliação dos modelos com um conjunto maior de incidentes
-- [ ] Versões fixas das imagens do Ollama e do n8n
-- [ ] Aceleração por GPU no Docker
+- [ ] Versões fixas das imagens do Ollama e do n8n, e aceleração por GPU
