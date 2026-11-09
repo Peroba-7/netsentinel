@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -14,8 +14,16 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    API_KEY: str = Field(min_length=16)
-    DATABASE_URL: str
+    # Chave de serviço com acesso total, para scripts e curl. Vazia, fica desativada.
+    # O dashboard não a usa: cada pessoa entra com o seu utilizador.
+    API_KEY: str = ""
+    # Obrigatória na API e no Alembic; o dashboard não liga à base de dados.
+    DATABASE_URL: str = ""
+
+    # Sessões e proteção do login.
+    SESSION_TTL_MINUTES: int = Field(default=480, ge=5)
+    LOGIN_MAX_ATTEMPTS: int = Field(default=5, ge=1)
+    LOGIN_LOCK_MINUTES: int = Field(default=15, ge=1)
 
     REDIS_URL: str = "redis://localhost:6379/0"
     RATE_LIMIT_PER_MINUTE: int = 10  # 0 desativa o limite
@@ -35,6 +43,13 @@ class Settings(BaseSettings):
     BLOCK_EXPIRY_INTERVAL_SECONDS: int = Field(default=60, ge=0)
 
     API_URL: str = "http://127.0.0.1:8000"  # usado pelo dashboard
+
+    @field_validator("API_KEY")
+    @classmethod
+    def _api_key_is_strong_or_disabled(cls, value: str) -> str:
+        if value and len(value) < 16:
+            raise ValueError("API_KEY deve ter pelo menos 16 caracteres, ou ficar vazia.")
+        return value
 
 
 settings = Settings()

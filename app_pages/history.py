@@ -3,7 +3,16 @@ import pandas as pd
 import streamlit as st
 
 from app.schemas.threat import ALERT_LEVELS, RISK_LEVELS, normalize_threat_type
-from dashboard_api import ApiError, block_ip, list_blocked, list_threats, unblock_ip
+from app.schemas.user import role_at_least
+from dashboard_api import (
+    ApiError,
+    block_ip,
+    list_blocked,
+    list_threats,
+    require_role,
+    show_api_error,
+    unblock_ip,
+)
 
 
 def to_safe_csv(frame: pd.DataFrame) -> bytes:
@@ -42,14 +51,18 @@ def ip_block_label(threat: dict) -> str:
     return "Sim (simulado)" if "simulado" in (threat["ip_block_result"] or "") else "Sim"
 
 
+user = require_role("leitor")
+# Só esconde os controlos; a API recusa estas ações a quem não tiver o perfil.
+can_block = role_at_least(user["role"], "analista")
+can_unblock = role_at_least(user["role"], "admin")
+
 st.subheader("Histórico e métricas de segurança", anchor=False)
 
 try:
     threats = list_threats()
     blocked = list_blocked()
 except ApiError as exc:
-    st.error(str(exc), title="Não foi possível carregar o histórico")
-    st.stop()
+    show_api_error(exc, "Não foi possível carregar o histórico")
 
 if not threats:
     st.info("Ainda não existem incidentes registados.")
@@ -155,7 +168,9 @@ if any("simulado" in (entry["result"] or "") for entry in blocked):
 dispatched = {entry["ip_address"] for entry in blocked if entry["dispatched"]}
 candidates = [ip for ip in df["ip_address"].unique() if ip not in dispatched]
 
-if not candidates:
+if not can_block:
+    st.caption("O seu perfil (leitor) permite consultar, mas não pedir bloqueios.")
+elif not candidates:
     st.info("Todos os IPs registados já têm um pedido de bloqueio enviado.")
 else:
     selected_ip = st.selectbox("IP a bloquear", candidates)
@@ -171,7 +186,7 @@ else:
                 selected_ip, block_reason(df, selected_ip), BLOCK_DURATIONS[duration]
             )
         except ApiError as exc:
-            st.error(str(exc), title="Não foi possível registar o bloqueio")
+            show_api_error(exc, "Não foi possível registar o bloqueio")
         else:
             if result["dispatched"]:
                 st.toast(f"{selected_ip}: {result['result']}")
@@ -188,6 +203,8 @@ if blocked:
         hide_index=True,
         alt="Lista de IPs com pedido de bloqueio",
     )
+
+if blocked and can_unblock:
     unblock_target = st.selectbox(
         "IP a desbloquear", [entry["ip_address"] for entry in blocked], key="unblock_target"
     )
@@ -195,7 +212,7 @@ if blocked:
         try:
             result = unblock_ip(unblock_target)
         except ApiError as exc:
-            st.error(str(exc), title="Não foi possível retirar o bloqueio")
+            show_api_error(exc, "Não foi possível retirar o bloqueio")
         else:
             st.toast(f"{unblock_target}: {result['result'] or 'pedido de bloqueio removido'}")
             st.rerun()

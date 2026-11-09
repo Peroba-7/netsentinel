@@ -15,11 +15,11 @@ def analyze(client, **overrides):
 
 
 def test_rejects_missing_api_key(client):
-    assert client.get("/threats/", headers={"X-API-Key": ""}).status_code == 403
+    assert client.get("/threats/", headers={"X-API-Key": ""}).status_code == 401
 
 
 def test_rejects_wrong_api_key(client):
-    assert client.get("/threats/", headers={"X-API-Key": "errada"}).status_code == 403
+    assert client.get("/threats/", headers={"X-API-Key": "errada"}).status_code == 401
 
 
 def test_liveness_is_public(client):

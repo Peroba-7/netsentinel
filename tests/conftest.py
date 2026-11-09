@@ -13,13 +13,14 @@ os.environ.update(
 )
 
 import pytest  # noqa: E402
+from argon2 import PasswordHasher  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 from sqlalchemy.pool import StaticPool  # noqa: E402
 from sqlmodel import Session, SQLModel, create_engine  # noqa: E402
 
 from app.agents import graph  # noqa: E402
 from app.api import threats  # noqa: E402
-from app.core import rate_limit  # noqa: E402
+from app.core import passwords, rate_limit  # noqa: E402
 from app.db.database import get_db  # noqa: E402
 from app.main import app  # noqa: E402
 
@@ -44,13 +45,26 @@ class FakeRedis:
         return [self.count]
 
 
+@pytest.fixture(autouse=True)
+def fast_password_hashing(monkeypatch):
+    """argon2 com custo mínimo nos testes; em produção ficam os parâmetros predefinidos."""
+    monkeypatch.setattr(
+        passwords, "_hasher", PasswordHasher(time_cost=1, memory_cost=8, parallelism=1)
+    )
+    monkeypatch.setattr(passwords, "_dummy_hash", None)
+
+
 @pytest.fixture
-def client(monkeypatch):
+def engine():
     engine = create_engine(
         "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
     )
     SQLModel.metadata.create_all(engine)
+    return engine
 
+
+@pytest.fixture
+def client(monkeypatch, engine):
     def override_db():
         with Session(engine) as session:
             yield session

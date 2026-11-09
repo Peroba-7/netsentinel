@@ -11,22 +11,24 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.api import threats
+from app.api import auth, threats, users
 from app.config import settings
 from app.core.rate_limit import redis_client
 from app.db.database import engine
-from app.services.block_expiry import expiry_loop
+from app.services.maintenance import maintenance_loop
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    # Retira os bloqueios com prazo vencido. Corre neste processo: com vários workers do
-    # uvicorn, cada um teria a sua tarefa.
+    # Retira os bloqueios com prazo vencido e limpa sessões antigas. Corre neste processo:
+    # com vários workers do uvicorn, cada um teria a sua tarefa.
     task = None
     if settings.BLOCK_EXPIRY_INTERVAL_SECONDS > 0:
-        task = asyncio.create_task(expiry_loop(engine, settings.BLOCK_EXPIRY_INTERVAL_SECONDS))
+        task = asyncio.create_task(
+            maintenance_loop(engine, settings.BLOCK_EXPIRY_INTERVAL_SECONDS)
+        )
     yield
     if task is not None:
         task.cancel()
@@ -41,7 +43,9 @@ app = FastAPI(
     description="Plataforma de análise de ameaças com LangGraph, Ollama e PostgreSQL.",
     lifespan=lifespan,
 )
+app.include_router(auth.router)
 app.include_router(threats.router)
+app.include_router(users.router)
 
 
 def _database_ok() -> bool:

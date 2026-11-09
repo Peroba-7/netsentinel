@@ -7,6 +7,7 @@ from streamlit.testing.v1 import AppTest
 
 import dashboard_api
 from app.schemas.threat import THREAT_TYPES
+from dashboard_nav import pages_for_role
 
 PAGES = Path(__file__).resolve().parent.parent / "app_pages"
 
@@ -24,11 +25,21 @@ THREAT = {
 }
 
 
+def session(role="admin", expires_at="2999-01-01T00:00:00+00:00"):
+    return {
+        "token": "token-de-teste",
+        "username": f"{role}1",
+        "role": role,
+        "expires_at": expires_at,
+    }
+
+
 class FakeResponse:
     def __init__(self, body, status_code=200):
         self.body = body
         self.status_code = status_code
         self.ok = status_code < 400
+        self.content = b"" if body is None else b"..."
 
     def json(self):
         return self.body
@@ -68,18 +79,28 @@ def api(monkeypatch):
     return state
 
 
-def open_page(name):
-    return AppTest.from_file(PAGES / name, default_timeout=10).run()
+def open_page(name, role="admin"):
+    """Abre uma página com uma sessão desse perfil; role=None abre sem sessão."""
+    page = AppTest.from_file(PAGES / name, default_timeout=10)
+    if role is not None:
+        page.session_state[dashboard_api.AUTH_KEY] = session(role)
+    return page.run()
 
 
-def test_every_request_sends_the_api_key(api):
+@pytest.fixture
+def signed_in(monkeypatch):
+    """Para chamar o cliente da API fora de uma página do Streamlit."""
+    monkeypatch.setattr(dashboard_api, "current_user", lambda: session("analista"))
+
+
+def test_every_request_sends_the_session_token_and_no_api_key(api, signed_in):
     dashboard_api.list_threats()
 
     headers = api["calls"][0][2]["headers"]
-    assert headers["X-API-Key"] == dashboard_api.settings.API_KEY
+    assert headers == {"Authorization": "Bearer token-de-teste"}
 
 
-def test_api_error_detail_reaches_the_user(api):
+def test_api_error_detail_reaches_the_user(api, signed_in):
     api["routes"][("GET", "/threats/")] = FakeResponse({"detail": "Sem acesso."}, 403)
 
     with pytest.raises(dashboard_api.ApiError, match="Sem acesso."):
@@ -317,7 +338,7 @@ def test_csv_neutralizes_formulas():
     source = (PAGES / "history.py").read_text(encoding="utf-8")
     start = source.index("def to_safe_csv")
     namespace = {"pd": pd}
-    exec(source[start : source.index("st.subheader")], namespace)  # noqa: S102
+    exec(source[start : source.index("user = require_role")], namespace)  # noqa: S102
 
     csv = namespace["to_safe_csv"](pd.DataFrame({"description": ["=1+1", "normal"]}))
 
@@ -369,3 +390,162 @@ def test_submit_rejects_description_made_only_of_quotes(api):
 
     assert "descrição" in page.error[0].value
     assert api["calls"] == []
+
+
+# --- Login e perfis no dashboard --------------------------------------------------------------
+
+ROOT = PAGES.parent
+
+
+def open_dashboard(auth=None):
+    app = AppTest.from_file(ROOT / "dashboard.py", default_timeout=10)
+    if auth is not None:
+        app.session_state[dashboard_api.AUTH_KEY] = auth
+    return app.run()
+
+
+def button_labels(page):
+    return {button.label for button in page.button}
+
+
+def test_without_session_only_login_is_shown_and_no_data_is_loaded(api):
+    app = open_dashboard()
+
+    assert not app.exception
+    assert app.subheader[0].value == "Iniciar sessão"
+    assert api["calls"] == []
+
+
+def test_expired_session_goes_back_to_login(api):
+    app = open_dashboard(session("admin", expires_at="2000-01-01T00:00:00+00:00"))
+
+    assert app.subheader[0].value == "Iniciar sessão"
+    assert api["calls"] == []
+
+
+def test_login_opens_the_history(api):
+    api["routes"][("POST", "/auth/login")] = FakeResponse(session("leitor"))
+    app = open_dashboard()
+
+    app.text_input[0].set_value("leitor1")
+    app.text_input[1].set_value("palavra-passe-forte")
+    app.button[0].click().run()
+
+    assert not app.exception
+    assert app.session_state[dashboard_api.AUTH_KEY]["role"] == "leitor"
+    assert ("GET", "/threats/") in [call[:2] for call in api["calls"]]
+    login_call = api["calls"][0]
+    assert "Authorization" not in login_call[2]["headers"]
+
+
+def test_failed_login_shows_api_message_and_keeps_user_out(api):
+    api["routes"][("POST", "/auth/login")] = FakeResponse(
+        {"detail": "Utilizador ou palavra-passe inválidos."}, 401
+    )
+    app = open_dashboard()
+
+    app.text_input[0].set_value("ana")
+    app.text_input[1].set_value("errada")
+    app.button[0].click().run()
+
+    assert "inválidos" in app.error[0].value
+    assert dashboard_api.AUTH_KEY not in app.session_state
+    assert [call[:2] for call in api["calls"]] == [("POST", "/auth/login")]
+
+
+def test_logout_ends_session_in_api_and_dashboard(api):
+    api["routes"][("POST", "/auth/logout")] = FakeResponse(None, 204)
+    app = open_dashboard(session("analista"))
+
+    next(button for button in app.sidebar.button if button.label == "Sair").click().run()
+
+    assert ("POST", "/auth/logout") in [call[:2] for call in api["calls"]]
+    assert dashboard_api.AUTH_KEY not in app.session_state
+    assert app.subheader[0].value == "Iniciar sessão"
+
+
+@pytest.mark.parametrize(
+    "role,titles",
+    [
+        ("leitor", ["Histórico"]),
+        ("analista", ["Histórico", "Submeter incidente"]),
+        ("admin", ["Histórico", "Submeter incidente", "Utilizadores"]),
+    ],
+)
+def test_menu_lists_only_the_pages_of_the_role(role, titles):
+    assert [title for _path, title, _icon in pages_for_role(role)] == titles
+
+
+@pytest.mark.parametrize(
+    "role,can_block,can_unblock",
+    [("leitor", False, False), ("analista", True, False), ("admin", True, True)],
+)
+def test_history_controls_follow_the_role(api, role, can_block, can_unblock):
+    api["routes"][("GET", "/threats/blocked")] = FakeResponse(
+        [
+            {
+                "ip_address": "10.0.0.9",
+                "reason": None,
+                "expires_at": None,
+                "created_at": "x",
+                "dispatched": True,
+                "result": "bloqueado (simulado)",
+            }
+        ]
+    )
+
+    page = open_page("history.py", role=role)
+
+    assert not page.exception
+    assert len(page.metric) == 3  # todos os perfis veem o histórico e os gráficos
+    assert ("Pedir bloqueio" in button_labels(page)) is can_block
+    assert ("Retirar bloqueio" in button_labels(page)) is can_unblock
+
+
+@pytest.mark.parametrize("name,role", [("submit.py", "leitor"), ("users.py", "analista")])
+def test_pages_above_the_role_show_nothing_and_call_nothing(api, name, role):
+    page = open_page(name, role=role)
+
+    assert "não tem acesso" in page.error[0].value
+    assert api["calls"] == []
+
+
+@pytest.mark.parametrize("name", ["history.py", "submit.py", "users.py"])
+def test_pages_without_session_show_no_data(api, name):
+    page = open_page(name, role=None)
+
+    assert api["calls"] == []
+    assert not page.metric and not page.dataframe
+
+
+def test_expired_session_reported_by_api_returns_to_login(api):
+    api["routes"][("GET", "/threats/")] = FakeResponse({"detail": "Sessão inválida."}, 401)
+
+    page = open_page("history.py", role="leitor")
+
+    assert dashboard_api.AUTH_KEY not in page.session_state
+    assert "Inicie sessão" in page.info[0].value
+
+
+def test_admin_sees_and_creates_users(api):
+    api["routes"][("GET", "/users/")] = FakeResponse(
+        [{"id": 1, "username": "admin1", "role": "admin", "is_active": True, "created_at": "x"}]
+    )
+    api["routes"][("POST", "/users/")] = FakeResponse(
+        {"id": 2, "username": "joao", "role": "leitor", "is_active": True, "created_at": "x"}, 201
+    )
+    page = open_page("users.py", role="admin")
+    assert not page.exception
+    assert list(page.dataframe[0].value["username"]) == ["admin1"]
+
+    page.text_input[0].set_value("Joao")
+    page.text_input[1].set_value("palavra-passe-forte")
+    page.text_input[2].set_value("palavra-passe-forte")
+    next(button for button in page.button if button.label == "Criar").click().run()
+
+    create_call = next(call for call in api["calls"] if call[:2] == ("POST", "/users/"))
+    assert create_call[2]["json"] == {
+        "username": "joao",
+        "password": "palavra-passe-forte",
+        "role": "leitor",
+    }

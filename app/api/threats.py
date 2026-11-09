@@ -8,7 +8,7 @@ from sqlmodel import Session, col, select
 
 from app.agents.graph import threat_graph
 from app.core.rate_limit import enforce_rate_limit
-from app.core.security import verify_api_key
+from app.core.security import require_role
 from app.db.database import get_db
 from app.db.models import BlockedIPModel, ThreatModel, utcnow
 from app.schemas.threat import (
@@ -25,7 +25,10 @@ from app.services.ollama_service import LLMUnavailableError
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/threats", tags=["Threats"], dependencies=[Depends(verify_api_key)])
+# Ler exige sessão (qualquer perfil); as rotas que alteram dados exigem mais, abaixo.
+router = APIRouter(
+    prefix="/threats", tags=["Threats"], dependencies=[Depends(require_role("leitor"))]
+)
 
 
 def _to_response(threat: ThreatModel, block_results: dict[str, str]) -> ThreatResponse:
@@ -52,7 +55,8 @@ def _block_results(db: Session) -> dict[str, str]:
     "/analyze",
     response_model=ThreatResponse,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(enforce_rate_limit)],
+    # O perfil é verificado antes do limite, para pedidos recusados não gastarem a quota.
+    dependencies=[Depends(require_role("analista")), Depends(enforce_rate_limit)],
 )
 def analyze_threat(
     threat: ThreatCreate,
@@ -140,7 +144,9 @@ def get_threat(threat_id: int, db: Session = Depends(get_db)):
     return _to_response(threat, _block_results(db))
 
 
-@router.post("/block", response_model=BlockResponse)
+@router.post(
+    "/block", response_model=BlockResponse, dependencies=[Depends(require_role("analista"))]
+)
 def block_ip(request: BlockRequest, db: Session = Depends(get_db)):
     """Regista o bloqueio e pede a sua execução ao n8n.
 
@@ -174,7 +180,11 @@ def block_ip(request: BlockRequest, db: Session = Depends(get_db)):
     return record
 
 
-@router.delete("/block/{ip_address}", response_model=UnblockResponse)
+@router.delete(
+    "/block/{ip_address}",
+    response_model=UnblockResponse,
+    dependencies=[Depends(require_role("admin"))],
+)
 def unblock_ip(ip_address: IPvAnyAddress, db: Session = Depends(get_db)):
     """Retira o bloqueio de um IP.
 

@@ -1,6 +1,5 @@
 """Retira automaticamente os bloqueios cujo prazo acabou."""
 
-import asyncio
 import logging
 from datetime import datetime
 
@@ -41,19 +40,3 @@ def expire_blocks(db: Session, now: datetime | None = None) -> int:
         logger.info("Bloqueio de %s expirou e foi retirado.", record.ip_address)
     return removed
 
-
-def run_expiry_once(engine) -> None:
-    """Uma verificação completa; qualquer erro é registado e não pára a tarefa."""
-    try:
-        with Session(engine) as db:
-            expire_blocks(db)
-    except Exception:
-        logger.exception("Falha ao verificar bloqueios expirados.")
-
-
-async def expiry_loop(engine, interval_seconds: float) -> None:
-    """Corre a verificação ao arrancar e depois a cada `interval_seconds`, até ser cancelada."""
-    while True:
-        # Numa thread: as chamadas ao n8n e à base de dados são bloqueantes.
-        await asyncio.to_thread(run_expiry_once, engine)
-        await asyncio.sleep(interval_seconds)

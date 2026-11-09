@@ -84,8 +84,11 @@ services:
       timeout: 5s
       retries: 10
 
+  # Sem env_file: o dashboard não recebe a API_KEY nem as credenciais da base de dados.
+  # Cada pessoa entra com o seu utilizador, e é a API que decide o que cada perfil pode fazer.
   dashboard:
-    <<: *app
+    build: .
+    restart: unless-stopped
     container_name: netsentinel-dashboard
     command:
       - streamlit
@@ -98,6 +101,7 @@ services:
       - "127.0.0.1:8501:8501"
     environment:
       API_URL: http://api:8000
+      OLLAMA_TIMEOUT_SECONDS: ${OLLAMA_TIMEOUT_SECONDS:-300}
     depends_on:
       api:
         condition: service_healthy

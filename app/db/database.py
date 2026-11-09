@@ -5,6 +5,9 @@ from sqlmodel import Session, create_engine
 from app.config import settings
 
 # O esquema é gerido pelo Alembic (pasta migrations/): corra `alembic upgrade head`.
+if not settings.DATABASE_URL:
+    raise RuntimeError("Defina DATABASE_URL no .env: a API precisa da base de dados.")
+
 _connect_args = (
     {"check_same_thread": False} if settings.DATABASE_URL.startswith("sqlite") else {}
 )

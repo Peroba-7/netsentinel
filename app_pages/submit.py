@@ -4,7 +4,7 @@ import logging
 import streamlit as st
 
 from app.schemas.threat import THREAT_TYPES
-from dashboard_api import ApiError, analyze_threat
+from dashboard_api import ApiError, analyze_threat, require_role, show_api_error
 
 logger = logging.getLogger("netsentinel.dashboard")
 
@@ -35,6 +35,8 @@ def find_problems(ip_address: str, description: str) -> list[str]:
     return problems
 
 
+require_role("analista")
+
 st.subheader("Submeter novo incidente", anchor=False)
 
 # Sem placeholders: num campo vazio, parecem texto escrito e o envio era rejeitado.
@@ -61,7 +63,7 @@ if submitted:
             result = analyze_threat(ip_address, threat_type, description)
     except ApiError as exc:
         logger.warning("Análise falhou: %s", exc)
-        st.error(str(exc), title="O incidente não foi guardado")
+        show_api_error(exc, "O incidente não foi guardado")
     else:
         st.success(f"Incidente {result['id']} guardado.")
         with st.container(horizontal=True):

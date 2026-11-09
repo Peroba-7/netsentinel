@@ -6,7 +6,7 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.db.models import BlockedIPModel, utcnow
-from app.services import block_expiry
+from app.services import block_expiry, maintenance
 
 
 @pytest.fixture
@@ -99,20 +99,21 @@ def test_expired_block_never_accepted_is_removed_without_n8n(engine, unblocks):
     assert remaining(engine) == []
 
 
-def test_run_once_logs_errors_instead_of_raising(caplog):
+def test_maintenance_logs_errors_and_keeps_going(caplog):
     broken = create_engine("sqlite://")  # sem tabelas
 
-    block_expiry.run_expiry_once(broken)
+    maintenance.run_maintenance_once(broken)
 
     assert "Falha ao verificar bloqueios expirados" in caplog.text
+    assert "Falha ao limpar sess" in caplog.text
 
 
-def test_loop_runs_until_cancelled(monkeypatch):
+def test_maintenance_loop_runs_until_cancelled(monkeypatch):
     runs = []
-    monkeypatch.setattr(block_expiry, "run_expiry_once", lambda engine: runs.append(engine))
+    monkeypatch.setattr(maintenance, "run_maintenance_once", lambda engine: runs.append(engine))
 
     async def run_briefly():
-        task = asyncio.create_task(block_expiry.expiry_loop("engine", 0.01))
+        task = asyncio.create_task(maintenance.maintenance_loop("engine", 0.01))
         await asyncio.sleep(0.05)
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
