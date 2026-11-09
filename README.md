@@ -3,7 +3,7 @@
 [![Testes](https://github.com/Peroba-7/netsentinel/actions/workflows/tests.yml/badge.svg)](https://github.com/Peroba-7/netsentinel/actions/workflows/tests.yml)
 
 Plataforma de triagem de incidentes de segurança com IA que corre localmente, sem enviar dados para serviços externos.
-O analista submete um incidente, um modelo no Ollama classifica o risco (BAIXO a CRÍTICO) e escreve um parecer, e o resultado fica guardado com histórico, gráficos e resposta ao incidente.
+O analista submete um incidente, um modelo no Ollama classifica o risco (BAIXO a CRÍTICO) e escreve um parecer, e o resultado fica guardado no histórico, com gráficos e opções de resposta ao incidente.
 O acesso é feito com login e perfis (leitor, analista, admin), e as permissões são aplicadas na própria API.
 
 > [!WARNING]
@@ -36,7 +36,7 @@ Decisões de arquitetura e as suas razões: [docs/ARQUITETURA.md](docs/ARQUITETU
 
 **Histórico e relatório**
 - Métricas, gráficos por tipo e por nível de risco, filtros por risco e por texto
-- Exportação para CSV protegida contra fórmulas (as descrições vêm de terceiros)
+- Exportação para CSV protegida contra injeção de fórmulas em células de origem externa
 
 **Resposta a incidentes**
 - Pedido de bloqueio de IP, permanente ou com prazo (30 min, 1 hora, 24 horas), enviado ao n8n, com o motivo preenchido a partir do incidente
@@ -98,28 +98,28 @@ tests/               Testes automáticos
 
 ## Capturas de ecrã
 
-Os dados nas capturas devem ser fictícios (use IPs de documentação, como `203.0.113.x`).
+Os dados nas capturas são fictícios e usam IPs de documentação, como `203.0.113.x`.
 
-> 📷 **PRINT 1 — Ecrã de login.** Ecrã "Iniciar sessão", sem nenhuma página de dados visível.
-> Ficheiro sugerido: `docs/img/01-login.png`
+![Início de sessão](docs/img/01-login.jpg)
+*Início de sessão*
 
-> 📷 **PRINT 2 — Histórico (perfil admin).** Métricas, gráficos "Ameaças por tipo" e "Níveis de risco", tabela de incidentes com a coluna "IP bloqueado", e a barra lateral com o utilizador, o perfil e o botão Sair.
-> Ficheiro sugerido: `docs/img/02-historico.png`
+![Histórico com perfil admin](docs/img/02-historico.jpg)
+*Histórico com perfil admin*
 
-> 📷 **PRINT 3 — Submeter incidente.** Formulário preenchido e o resultado: nível de risco, estado e parecer da IA.
-> Ficheiro sugerido: `docs/img/03-submeter.png`
+![Submeter incidente e resultado da análise](docs/img/03-submeter.jpg)
+*Submeter incidente e resultado da análise*
 
-> 📷 **PRINT 4 — Resposta a incidentes.** Escolha do IP e da duração do bloqueio, aviso de modo de simulação e tabela "Bloqueios ativos" com a coluna "expira em".
-> Ficheiro sugerido: `docs/img/04-bloqueios.png`
+![Resposta a incidentes e bloqueios ativos](docs/img/04-bloqueios.jpg)
+*Resposta a incidentes e bloqueios ativos*
 
-> 📷 **PRINT 5 — Mesmo ecrã com perfil leitor.** O histórico sem os botões de bloqueio e desbloqueio, e o menu só com "Histórico".
-> Ficheiro sugerido: `docs/img/05-leitor.png`
+![Histórico com perfil leitor, sem menu de navegação](docs/img/05-leitor.jpg)
+*Histórico com perfil leitor, sem menu de navegação*
 
-> 📷 **PRINT 6 — Utilizadores (admin).** Lista de utilizadores e os separadores "Criar utilizador" e "Alterar utilizador".
-> Ficheiro sugerido: `docs/img/06-utilizadores.png`
+![Gestão de utilizadores](docs/img/06-utilizadores.jpg)
+*Gestão de utilizadores*
 
-> 📷 **PRINT 7 — Documentação da API.** Swagger em `http://localhost:8000/docs`, com as rotas `/auth`, `/threats` e `/users`.
-> Ficheiro sugerido: `docs/img/07-swagger.png`
+![Documentação da API no Swagger](docs/img/07-swagger.jpg)
+*Documentação da API no Swagger*
 
 ## Perfis e permissões
 
@@ -133,7 +133,7 @@ As permissões são verificadas **na API**, em cada rota. O dashboard só escond
 | Retirar bloqueio | `DELETE /threats/block/{ip}` | ❌ | ❌ | ✅ |
 | Listar, criar e alterar utilizadores | `/users/` | ❌ | ❌ | ✅ |
 
-No dashboard, o menu mostra só as páginas do perfil: o leitor vê "Histórico"; o analista também "Submeter incidente"; o admin também "Utilizadores". O sistema não permite retirar o último admin ativo.
+No dashboard, o menu mostra só as páginas do perfil: o leitor só consulta o histórico, sem menu de navegação; o analista vê "Histórico" e "Submeter incidente"; o admin também "Utilizadores". O sistema não permite retirar o último admin ativo.
 
 A **chave de serviço** (`API_KEY`, opcional) tem acesso de admin e serve para scripts. Só o contentor da API a recebe.
 
@@ -395,7 +395,7 @@ No PowerShell 5.1, o `>` grava em UTF-16; para um ficheiro UTF-8, use o Git Bash
 - **Contentor do dashboard sem credenciais.** Não recebe a `API_KEY`, a palavra-passe do PostgreSQL nem os segredos do n8n e dos alertas.
 - **Portas só em `127.0.0.1`**; o Ollama só é acessível pela rede interna do Compose.
 - **Webhook do n8n autenticado** com o cabeçalho `X-NetSentinel-Secret`; o IP é validado antes de chegar ao nó da firewall.
-- **Dados não confiáveis tratados como tal:** delimitadores no prompt da IA, CSV exportado sem fórmulas e alertas do Discord sem menções.
+- **Dados não confiáveis tratados como tal:** delimitadores no prompt da IA, fórmulas neutralizadas no CSV exportado e alertas do Discord sem menções.
 - **Segredos fora do repositório:** `.env` e cópias de segurança no `.gitignore` e no `.dockerignore`; o `alembic.ini` lê a ligação das configurações.
 
 ### Limitações conhecidas
