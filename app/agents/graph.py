@@ -4,6 +4,7 @@ from typing import TypedDict
 
 from langgraph.graph import END, StateGraph
 
+from app.agents.prompt import build_messages
 from app.schemas.threat import RISK_LEVELS
 from app.services.ollama_service import generate_analysis
 
@@ -47,15 +48,8 @@ def parse_analysis(raw: str) -> tuple[str, str]:
 
 
 def analyze_node(state: ThreatState) -> ThreatState:
-    prompt = (
-        "Analisa a seguinte ameaça de segurança.\n\n"
-        "<incidente>\n"
-        f"IP: {state['ip_address']}\n"
-        f"Tipo: {state['threat_type']}\n"
-        f"Descrição: {state['description']}\n"
-        "</incidente>"
-    )
-    risk_level, analysis = parse_analysis(generate_analysis(prompt))
+    messages = build_messages(state["ip_address"], state["threat_type"], state["description"])
+    risk_level, analysis = parse_analysis(generate_analysis(messages))
     return {**state, "risk_level": risk_level, "ai_analysis": analysis}
 
 

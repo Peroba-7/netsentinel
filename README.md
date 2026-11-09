@@ -59,6 +59,7 @@ O projeto usa o LangGraph e o `langchain-core`, de que ele depende. A comunicaç
 ```text
 app/
 ├── agents/graph.py      Fluxo de análise e leitura da resposta da IA
+├── agents/prompt.py     Instruções, critérios de risco e exemplos dados à IA
 ├── api/threats.py       Rotas /threats
 ├── core/                Autenticação e limite de pedidos
 ├── db/                  Ligação à base de dados e modelos
@@ -66,6 +67,7 @@ app/
 ├── services/            Ollama e notificações
 └── main.py              Aplicação FastAPI e /health
 app_pages/               Páginas do dashboard
+evals/                   Casos de avaliação da classificação de risco
 migrations/              Migrações da base de dados (Alembic)
 n8n/                     Workflow de bloqueio em simulação
 tests/                   Testes automáticos
@@ -385,6 +387,22 @@ Para trocar de modelo, altere `OLLAMA_MODEL` no `.env` e aplique:
 docker compose up -d
 ```
 
+### Critérios de risco e avaliação
+
+O prompt em [app/agents/prompt.py](app/agents/prompt.py) define critérios objetivos por nível (número de tentativas, sucesso depois de falhas, conta privilegiada, origem conhecida) e dá ao modelo quatro exemplos curtos, incluindo um caso benigno. O campo "Tipo" é tratado como suspeita de quem registou o incidente, não como conclusão: um utilizador que erra a palavra-passe duas vezes e entra a partir do escritório é BAIXO, mesmo registado como "Brute Force".
+
+[evals/incidents.json](evals/incidents.json) tem 10 incidentes com o nível esperado. O `pytest` usa-os com o Ollama simulado, para garantir que os critérios chegam ao modelo e que uma resposta fora do formato fica INDETERMINADO. Para medir o modelo real, sem gravar incidentes nem enviar alertas:
+
+```bash
+docker cp evals netsentinel-api:/tmp/evals
+docker exec -w /app -e PYTHONPATH=/app netsentinel-api \
+  python /tmp/evals/run_live.py /tmp/evals/incidents.json --repeat 3
+```
+
+No Git Bash do Windows, corra antes `export MSYS_NO_PATHCONV=1`, para os caminhos `/tmp` não serem convertidos.
+
+Resultado com `llama3` (novembro de 2026): os 10 casos corretos numa passagem. Nos três casos reais repetidos três vezes, 8 de 9 corretos: o DDoS saiu uma vez CRÍTICO em vez de ALTO. Com o prompt anterior, o caso benigno saía MÉDIO nas três repetições. O modelo continua a poder errar; confirme sempre a classificação.
+
 ## Configuração
 
 Todas as variáveis estão em [.env.example](.env.example).
@@ -437,7 +455,7 @@ Antes de usar fora desta máquina, é necessário:
 
 **Qualidade e operação**
 
-- [ ] Migrações da base de dados com Alembic
+- [x] Migrações da base de dados com Alembic
 - [x] Integração contínua com testes e `ruff`
 - [ ] Avaliação dos modelos com um conjunto maior de incidentes
 - [ ] Versões fixas das imagens do Ollama e do n8n

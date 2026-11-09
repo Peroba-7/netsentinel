@@ -1,0 +1,82 @@
+[
+  {
+    "id": "benigno-escritorio",
+    "real": true,
+    "ip_address": "10.10.0.25",
+    "threat_type": "Brute Force",
+    "description": "Um usuário errou a senha duas vezes e depois entrou com sucesso, a partir do IP habitual do escritório",
+    "expected": "BAIXO"
+  },
+  {
+    "id": "brute-force-480",
+    "real": true,
+    "ip_address": "203.0.113.77",
+    "threat_type": "Brute Force",
+    "description": "480 tentativas de login SSH falhadas em 10 minutos contra a conta root, a partir de um IP desconhecido. Nenhuma teve sucesso.",
+    "expected": "ALTO"
+  },
+  {
+    "id": "ddos-site",
+    "real": true,
+    "ip_address": "198.51.100.200",
+    "threat_type": "DDoS",
+    "description": "Pico de 2 milhões de pedidos por segundo vindos de milhares de IPs contra o site público; o site ficou lento e com falhas intermitentes durante 20 minutos.",
+    "expected": "ALTO"
+  },
+  {
+    "id": "conta-bloqueada-utilizador",
+    "real": false,
+    "ip_address": "10.10.4.12",
+    "threat_type": "Brute Force",
+    "description": "A conta de um colaborador foi bloqueada depois de 3 tentativas com a palavra-passe antiga, no seu posto de trabalho habitual, logo após a troca obrigatória de palavra-passe.",
+    "expected": "BAIXO"
+  },
+  {
+    "id": "phishing-reportado",
+    "real": false,
+    "ip_address": "192.0.2.80",
+    "threat_type": "Phishing",
+    "description": "Email a imitar o banco foi reportado por dois colaboradores; ninguém clicou no link e o filtro de email já bloqueou o remetente.",
+    "expected": "BAIXO"
+  },
+  {
+    "id": "falhas-desconhecido-sem-sucesso",
+    "real": false,
+    "ip_address": "198.51.100.14",
+    "threat_type": "Brute Force",
+    "description": "40 tentativas de login falhadas no portal de clientes, em contas comuns, a partir de um IP desconhecido. Nenhuma teve sucesso.",
+    "expected": "MÉDIO"
+  },
+  {
+    "id": "malware-quarentena",
+    "real": false,
+    "ip_address": "10.10.2.33",
+    "threat_type": "Malware",
+    "description": "O antivírus detetou um ficheiro malicioso num anexo descarregado e colocou-o em quarentena automaticamente antes de ser executado.",
+    "expected": "MÉDIO"
+  },
+  {
+    "id": "malware-em-execucao",
+    "real": false,
+    "ip_address": "10.10.2.51",
+    "threat_type": "Malware",
+    "description": "Um trojan está em execução num portátil e tenta ligar-se a um servidor externo; ainda não foi visto noutros equipamentos.",
+    "expected": "ALTO"
+  },
+  {
+    "id": "sucesso-apos-falhas-admin",
+    "real": false,
+    "ip_address": "45.33.12.9",
+    "threat_type": "Brute Force",
+    "description": "Depois de 650 falhas, um IP estrangeiro entrou com sucesso na conta admin do painel de gestão e alterou as permissões de outros utilizadores.",
+    "expected": "CRÍTICO"
+  },
+  {
+    "id": "ransomware",
+    "real": false,
+    "ip_address": "10.10.1.5",
+    "threat_type": "Malware",
+    "description": "Ficheiros do servidor de partilha estão a ser cifrados e apareceu uma nota de resgate; três postos já mostram o mesmo comportamento.",
+    "expected": "CRÍTICO"
+  }
+]
