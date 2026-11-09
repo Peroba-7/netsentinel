@@ -23,6 +23,7 @@ O acesso é feito com login e perfis (leitor, analista, admin), e as permissões
 - [Desenvolvimento e testes](#desenvolvimento-e-testes)
 - [Segurança](#segurança)
 - [Próximos passos](#próximos-passos)
+- [Licença](#licença)
 
 Decisões de arquitetura e as suas razões: [docs/ARQUITETURA.md](docs/ARQUITETURA.md).
 
@@ -419,3 +420,7 @@ Antes de usar fora desta máquina: coloque os serviços atrás de um proxy com H
 - [ ] Fluxo do LangGraph com mais etapas, como enriquecimento de IPs
 - [ ] Avaliação dos modelos com um conjunto maior de incidentes
 - [ ] Versões fixas das imagens do Ollama e do n8n, e aceleração por GPU
+
+## Licença
+
+Distribuído sob a licença MIT. Consulte o ficheiro [LICENSE](LICENSE).
