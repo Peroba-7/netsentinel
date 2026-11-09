@@ -82,7 +82,7 @@ def test_list_threats_newest_first_and_paginated(client):
     assert [t["id"] for t in client.get("/threats/?limit=1&offset=1").json()] == [ids[1]]
 
 
-def test_block_marks_threats_as_blocked(client):
+def test_block_marks_ip_as_blocked_but_keeps_incident_status(client):
     analyze(client)
 
     response = client.post("/threats/block", json={"ip_address": "10.0.0.1"})
@@ -90,8 +90,27 @@ def test_block_marks_threats_as_blocked(client):
     assert response.status_code == 200
     assert response.json()["dispatched"] is True
     assert response.json()["result"] == "bloqueado (simulado)"
-    assert client.get("/threats/").json()[0]["status"] == "BLOQUEADO (SIMULADO)"
+    threat = client.get("/threats/").json()[0]
+    assert threat["status"] == "ANALISADO"
+    assert threat["ip_blocked"] is True
+    assert threat["ip_block_result"] == "bloqueado (simulado)"
     assert [b["ip_address"] for b in client.get("/threats/blocked").json()] == ["10.0.0.1"]
+
+
+def test_ip_block_applies_to_every_incident_of_that_ip_only(client):
+    analyze(client, ip_address="10.0.0.1")
+    analyze(client, ip_address="10.0.0.1", threat_type="Port Scan")
+    analyze(client, ip_address="10.0.0.2")
+
+    client.post("/threats/block", json={"ip_address": "10.0.0.1"})
+
+    threats_list = client.get("/threats/").json()
+    by_ip = [(t["ip_address"], t["status"], t["ip_blocked"]) for t in threats_list]
+    assert by_ip == [
+        ("10.0.0.2", "ANALISADO", False),
+        ("10.0.0.1", "ANALISADO", True),
+        ("10.0.0.1", "ANALISADO", True),
+    ]
 
 
 def test_block_reports_failed_dispatch_and_retries(client, monkeypatch):
@@ -122,7 +141,10 @@ def test_failed_dispatch_does_not_mark_threat_as_blocked(client, monkeypatch):
 
     client.post("/threats/block", json={"ip_address": "10.0.0.1"})
 
-    assert client.get("/threats/").json()[0]["status"] == "ANALISADO"
+    threat = client.get("/threats/").json()[0]
+    assert threat["status"] == "ANALISADO"
+    assert threat["ip_blocked"] is False
+    assert threat["ip_block_result"] is None
 
 
 def test_get_threat_by_id(client):
@@ -165,7 +187,7 @@ def test_unblock_removes_accepted_block(client, monkeypatch):
     assert response.status_code == 200
     assert response.json() == {"ip_address": "10.0.0.1", "result": "desbloqueado (simulado)"}
     assert client.get("/threats/blocked").json() == []
-    assert client.get("/threats/").json()[0]["status"] == "ANALISADO"
+    assert client.get("/threats/").json()[0]["ip_blocked"] is False
 
 
 def test_unblock_keeps_block_if_n8n_does_not_accept(client, monkeypatch):

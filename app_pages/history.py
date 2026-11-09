@@ -35,6 +35,13 @@ def block_reason(incidents: pd.DataFrame, ip_address: str) -> str:
     return f"{normalize_threat_type(latest['threat_type'])}, risco {latest['risk_level']}"
 
 
+def ip_block_label(threat: dict) -> str:
+    """Texto da coluna "IP bloqueado": vazio, "Sim" ou "Sim (simulado)"."""
+    if not threat["ip_blocked"]:
+        return ""
+    return "Sim (simulado)" if "simulado" in (threat["ip_block_result"] or "") else "Sim"
+
+
 st.subheader("Histórico e métricas de segurança", anchor=False)
 
 try:
@@ -49,6 +56,13 @@ if not threats:
     st.stop()
 
 df = pd.DataFrame(threats)
+# O bloqueio é do IP, não do incidente: fica numa coluna própria, ao lado do estado.
+df.insert(
+    df.columns.get_loc("status") + 1,
+    "IP bloqueado",
+    [ip_block_label(threat) for threat in threats],
+)
+df = df.drop(columns=["ip_blocked", "ip_block_result"])
 
 
 def count_chart(counts: pd.Series, x_label: str, order: list[str] | None = None) -> alt.Chart:

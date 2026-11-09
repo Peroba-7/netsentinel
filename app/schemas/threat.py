@@ -52,7 +52,12 @@ class ThreatResponse(BaseModel):
     risk_level: str
     ai_analysis: str | None
     timestamp: datetime
+    # Estado do próprio incidente.
     status: str
+    # Se o IP tem um bloqueio aceite pelo n8n, venha ele deste incidente ou de outro do mesmo IP.
+    ip_blocked: bool = False
+    # Resposta do n8n ao bloqueio do IP, por exemplo "bloqueado (simulado)".
+    ip_block_result: str | None = None
 
 
 MAX_BLOCK_MINUTES = 7 * 24 * 60  # 7 dias

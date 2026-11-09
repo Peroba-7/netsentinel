@@ -285,7 +285,9 @@ Resposta abreviada:
   "threat_type": "Brute Force",
   "risk_level": "ALTO",
   "ai_analysis": "Parecer técnico com as ações recomendadas.",
-  "status": "ANALISADO"
+  "status": "ANALISADO",
+  "ip_blocked": false,
+  "ip_block_result": null
 }
 ```
 
@@ -306,9 +308,11 @@ Resposta abreviada:
 1. O analista pede o bloqueio no dashboard, ou na rota `POST /threats/block`.
 2. A API regista o pedido e envia-o ao n8n.
 3. O n8n valida o IP, escreve no log e responde `bloqueado (simulado)`.
-4. A API guarda a resposta, e o dashboard mostra `BLOQUEADO (SIMULADO)`.
+4. A API guarda a resposta, e o histórico mostra "Sim (simulado)" na coluna **IP bloqueado**.
 
-Se o n8n não aceitar o pedido, o IP fica com `dispatched: false`, o incidente não aparece como bloqueado e o pedido pode ser repetido.
+O bloqueio é do IP, não do incidente: todos os incidentes desse IP mostram "IP bloqueado", mas o estado de cada um continua `ANALISADO`. Na API, os incidentes trazem `ip_blocked` e `ip_block_result`.
+
+Se o n8n não aceitar o pedido, o IP fica com `dispatched: false`, não aparece como bloqueado e o pedido pode ser repetido.
 
 O motivo enviado pelo dashboard é o tipo e o risco do incidente mais recente do IP, por exemplo `Brute Force, risco ALTO`.
 

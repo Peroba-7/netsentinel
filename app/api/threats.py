@@ -29,15 +29,19 @@ router = APIRouter(prefix="/threats", tags=["Threats"], dependencies=[Depends(ve
 
 
 def _to_response(threat: ThreatModel, block_results: dict[str, str]) -> ThreatResponse:
+    # O estado é do incidente; o bloqueio é do IP e pode vir de outro incidente com o mesmo IP.
     result = block_results.get(threat.ip_address)
     return ThreatResponse(
-        **threat.model_dump(), status=result.upper() if result else STATUS_ANALYZED
+        **threat.model_dump(),
+        status=STATUS_ANALYZED,
+        ip_blocked=result is not None,
+        ip_block_result=result,
     )
 
 
 def _block_results(db: Session) -> dict[str, str]:
-    # O estado vem da resposta do workflow, que sabe se o bloqueio foi real ou simulado.
-    # Sem aceitação do n8n, nada foi bloqueado: o incidente não pode aparecer como tal.
+    # O resultado vem da resposta do workflow, que sabe se o bloqueio foi real ou simulado.
+    # Sem aceitação do n8n, nada foi bloqueado: o IP não pode aparecer como bloqueado.
     query = select(BlockedIPModel.ip_address, BlockedIPModel.result).where(
         col(BlockedIPModel.dispatched)
     )

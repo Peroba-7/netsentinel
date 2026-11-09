@@ -19,6 +19,8 @@ THREAT = {
     "ai_analysis": "Bloquear a origem.",
     "timestamp": "2026-11-06T12:00:00Z",
     "status": "ANALISADO",
+    "ip_blocked": False,
+    "ip_block_result": None,
 }
 
 
@@ -320,3 +322,50 @@ def test_csv_neutralizes_formulas():
     csv = namespace["to_safe_csv"](pd.DataFrame({"description": ["=1+1", "normal"]}))
 
     assert "'=1+1" in csv.decode("utf-8-sig")
+
+
+def test_history_shows_ip_block_apart_from_incident_status(api):
+    blocked_ip = {
+        **THREAT,
+        "risk_level": "BAIXO",
+        "ip_blocked": True,
+        "ip_block_result": "bloqueado (simulado)",
+    }
+    other = {**THREAT, "id": 2, "ip_address": "10.0.0.2"}
+    api["routes"][("GET", "/threats/")] = FakeResponse([blocked_ip, other])
+
+    page = open_page("history.py")
+
+    table = page.dataframe[0].value
+    assert list(table["status"]) == ["ANALISADO", "ANALISADO"]
+    assert list(table["IP bloqueado"]) == ["Sim (simulado)", ""]
+    assert "ip_blocked" not in table.columns
+
+
+@pytest.mark.parametrize(
+    "typed,sent",
+    [
+        ('"Tráfego anormal."', "Tráfego anormal."),
+        ("  “Tráfego anormal.”  \n", "Tráfego anormal."),
+        ("'Login com \"admin\" falhou'", 'Login com "admin" falhou'),
+        ("«Varrimento de portas»", "Varrimento de portas"),
+    ],
+)
+def test_submit_removes_quotes_and_spaces_around_description(api, typed, sent):
+    page = open_page("submit.py")
+    page.text_input[0].set_value("10.0.0.1")
+    page.text_area[0].set_value(typed)
+    page.button[0].click().run()
+
+    analyze_call = next(call for call in api["calls"] if call[1] == "/threats/analyze")
+    assert analyze_call[2]["json"]["description"] == sent
+
+
+def test_submit_rejects_description_made_only_of_quotes(api):
+    page = open_page("submit.py")
+    page.text_input[0].set_value("10.0.0.1")
+    page.text_area[0].set_value('  ""  ')
+    page.button[0].click().run()
+
+    assert "descrição" in page.error[0].value
+    assert api["calls"] == []

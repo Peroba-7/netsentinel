@@ -8,6 +8,17 @@ from dashboard_api import ApiError, analyze_threat
 
 logger = logging.getLogger("netsentinel.dashboard")
 
+# Aspas retas, tipográficas e angulares, e espaços em branco.
+_EDGE_CHARACTERS = "\"'“”‘’«» \t\r\n"
+
+
+def clean_description(text: str) -> str:
+    """Remove aspas e espaços sobrando no início e no fim, comuns ao colar texto.
+
+    As aspas no meio do texto ficam como estão.
+    """
+    return text.strip(_EDGE_CHARACTERS)
+
 
 def find_problems(ip_address: str, description: str) -> list[str]:
     """Devolve o que impede o envio, para o analista saber exatamente o que corrigir."""
@@ -37,7 +48,7 @@ with st.form("threat_form", border=True):
 
 if submitted:
     ip_address = ip_address.strip()
-    description = description.strip()
+    description = clean_description(description)
     problems = find_problems(ip_address, description)
 
     if problems:
