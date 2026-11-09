@@ -1,6 +1,4 @@
 import logging
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 
 import httpx
 import redis
@@ -12,22 +10,15 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.api import threats
 from app.config import settings
 from app.core.rate_limit import redis_client
-from app.db.database import engine, init_db
+from app.db.database import engine
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
-
-@asynccontextmanager
-async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    init_db()
-    yield
-
-
+# As tabelas não são criadas aqui: o Alembic aplica as migrações antes de a API arrancar.
 app = FastAPI(
     title="NetSentinel API",
     version="3.0.0",
     description="Plataforma de análise de ameaças com LangGraph, Ollama e PostgreSQL.",
-    lifespan=lifespan,
 )
 app.include_router(threats.router)
 

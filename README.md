@@ -17,6 +17,7 @@ Um analista submete um incidente no dashboard, um modelo a correr no Ollama clas
 - [Painel](#painel)
 - [Instalação com Docker Compose](#instalação-com-docker-compose)
 - [Desenvolvimento local](#desenvolvimento-local)
+- [Migrações da base de dados](#migrações-da-base-de-dados)
 - [API](#api)
 - [Bloqueio de IPs em modo de simulação](#bloqueio-de-ips-em-modo-de-simulação)
 - [Comparação de modelos](#comparação-de-modelos)
@@ -65,6 +66,7 @@ app/
 ├── services/            Ollama e notificações
 └── main.py              Aplicação FastAPI e /health
 app_pages/               Páginas do dashboard
+migrations/              Migrações da base de dados (Alembic)
 n8n/                     Workflow de bloqueio em simulação
 tests/                   Testes automáticos
 ```
@@ -143,6 +145,8 @@ O ficheiro `.env` guarda segredos e nunca deve entrar no git.
 docker compose up -d --build
 ```
 
+Ao arrancar, a API aplica as [migrações da base de dados](#migrações-da-base-de-dados) antes de aceitar pedidos.
+
 Na primeira execução, o serviço `ollama-pull` descarrega o modelo definido em `OLLAMA_MODEL`, o que pode demorar vários minutos. Esse serviço termina quando acaba, por isso é normal aparecer como `Exited`.
 
 ### 4. Instalar o workflow do n8n
@@ -194,6 +198,7 @@ venv\Scripts\activate               # Windows
 source venv/bin/activate            # Linux e macOS
 pip install -r requirements-dev.txt
 
+alembic upgrade head                # cria ou atualiza as tabelas
 uvicorn app.main:app --reload       # API
 streamlit run dashboard.py          # dashboard, noutro terminal
 ```
@@ -206,6 +211,34 @@ ruff check .
 ```
 
 Os testes usam uma base de dados em memória e simulam a IA, por isso não precisam do Docker nem do Ollama.
+
+## Migrações da base de dados
+
+As tabelas são geridas pelo [Alembic](https://alembic.sqlalchemy.org/). Cada alteração ao esquema é um ficheiro em `migrations/versions/`, aplicado por ordem. A ligação vem do `DATABASE_URL` do `.env`, por isso o `alembic.ini` não guarda palavras-passe.
+
+A API não cria tabelas sozinha. No Docker, o contentor da API corre `alembic upgrade head` antes do `uvicorn`; se uma migração falhar, a API não arranca e o erro aparece em `docker compose logs api`. Fora do Docker, corra o mesmo comando antes de iniciar a API.
+
+**Bases criadas antes do Alembic.** A migração inicial (`0001`) só cria as tabelas que ainda não existem. Numa base já em uso, não altera nada e fica apenas registada como aplicada, sem apagar dados. Também pode marcá-la à mão, sem executar nada:
+
+```bash
+alembic stamp 0001
+```
+
+**Criar uma nova migração**, depois de alterar um modelo em `app/db/models.py`:
+
+```bash
+alembic revision --autogenerate -m "descrição curta" --rev-id 0003
+```
+
+1. Reveja o ficheiro gerado em `migrations/versions/`: o Alembic não deteta tudo (por exemplo, mudanças de nome de colunas aparecem como apagar e criar).
+2. Aplique com `alembic upgrade head` e confirme com `alembic current`.
+3. Corra `pytest`: um teste falha se as migrações não corresponderem aos modelos.
+
+Tabelas que não pertencem aos modelos (como a antiga `threat_logs`) são ignoradas, para uma migração automática nunca as apagar. Antes de aplicar migrações a dados reais, faça uma cópia de segurança:
+
+```bash
+docker exec netsentinel-postgres sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' > backup.sql
+```
 
 ## API
 
