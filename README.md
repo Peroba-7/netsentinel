@@ -50,6 +50,7 @@ Decisões de arquitetura e as suas razões: [docs/ARQUITETURA.md](docs/ARQUITETU
 
 **Operação**
 - Docker Compose com todos os serviços; migrações da base de dados com Alembic, aplicadas no arranque
+- HTTPS local com proxy reverso Caddy (certificado da CA interna) e cabeçalhos de segurança
 - Verificação do estado dos serviços em `/health`
 - Testes automáticos (`pytest`) e análise estática (`ruff`) no GitHub Actions
 
@@ -57,9 +58,11 @@ Decisões de arquitetura e as suas razões: [docs/ARQUITETURA.md](docs/ARQUITETU
 
 ```mermaid
 flowchart LR
-    user(["Analista no navegador"]) -->|":8501"| dash["Dashboard<br/>Streamlit"]
-    dash -->|"token da sessão<br/>:8000"| api["API<br/>FastAPI + LangGraph"]
-    script(["Scripts / curl"]) -.->|"X-API-Key<br/>(opcional)"| api
+    user(["Analista no navegador"]) -->|"HTTPS :8443"| caddy["Caddy<br/>proxy HTTPS"]
+    script(["Scripts / curl"]) -.->|"HTTPS :8443/api<br/>token ou X-API-Key"| caddy
+    caddy -->|"/"| dash["Dashboard<br/>Streamlit"]
+    caddy -->|"/api"| api["API<br/>FastAPI + LangGraph"]
+    dash -->|"token da sessão<br/>rede interna"| api
     api -->|"incidentes, bloqueios,<br/>utilizadores, sessões"| pg[("PostgreSQL")]
     api -->|"limite de pedidos"| redis[("Redis")]
     api -->|"prompt e resposta"| ollama["Ollama<br/>modelo local"]
@@ -69,6 +72,7 @@ flowchart LR
 
 | Componente | Função |
 |---|---|
+| **Caddy** | Proxy reverso: termina o HTTPS em `localhost:8443`, envia `/api` para a API e o resto para o dashboard, e acrescenta os cabeçalhos de segurança. A porta 8080 redireciona para HTTPS |
 | **Dashboard** (Streamlit) | Ecrãs de login, histórico, submissão de incidentes e utilizadores. Não tem credenciais próprias: fala com a API com o token de quem entrou |
 | **API** (FastAPI) | Autenticação, permissões por perfil, validação, análise e registo. Corre `alembic upgrade head` antes de arrancar |
 | **LangGraph** | Orquestra o fluxo de análise; o Ollama é chamado com o cliente oficial `ollama` |
@@ -215,17 +219,20 @@ O `-ExecutionPolicy Bypass` aplica-se só a este comando; é necessário porque 
 
 | Serviço | Endereço |
 |---|---|
-| Dashboard | http://localhost:8501 |
-| Documentação da API (Swagger) | http://localhost:8000/docs |
-| n8n | http://localhost:5678 |
+| Dashboard | https://localhost:8443 |
+| API | https://localhost:8443/api |
+| Documentação da API (Swagger) | https://localhost:8443/api/docs |
+| n8n | http://127.0.0.1:5678 |
 
-Confirme que os serviços estão ligados (no PowerShell 5.1, `curl` é outro comando; use `curl.exe`):
+`http://localhost:8080` redireciona para `https://localhost:8443`. O certificado é emitido por uma CA local do Caddy: até a instalar, o navegador mostra um aviso. Para confiar nela no Windows, veja [docs/ARQUITETURA.md](docs/ARQUITETURA.md#confiar-na-ca-local-do-caddy-no-windows). O n8n abre-se por `127.0.0.1` e não por `localhost`, porque o HSTS enviado em `https://localhost` faria o navegador exigir HTTPS também na porta 5678.
+
+Confirme que os serviços estão ligados (no PowerShell 5.1, `curl` é outro comando; use `curl.exe`; o `-k` aceita o certificado local sem a CA instalada):
 
 ```powershell
-curl.exe http://localhost:8000/health
+curl.exe -k https://localhost:8443/api/health
 ```
 
-A resposta indica o estado da base de dados, do Redis e do Ollama. Todas as portas só aceitam ligações desta máquina (`127.0.0.1`).
+A resposta indica o estado da base de dados, do Redis e do Ollama. A API e o dashboard já não têm portas próprias no host; as portas publicadas (8443, 8080, 5678, 5432 e 6379) só aceitam ligações desta máquina (`127.0.0.1`).
 
 **Linux e macOS:** os passos são os mesmos, com `cp .env.example .env`, `python -c "import secrets; print(secrets.token_hex(32))"` para gerar segredos e `./n8n/install-workflow.sh` no passo 5.
 
@@ -279,7 +286,7 @@ Para ver os bloqueios simulados: `docker logs netsentinel-n8n 2>&1 | Select-Stri
 
 ## API
 
-Documentação interativa em **http://localhost:8000/docs**.
+Documentação interativa em **https://localhost:8443/api/docs**. Pelo proxy, todas as rotas abaixo têm o prefixo `/api` (por exemplo, `https://localhost:8443/api/auth/login`).
 
 **Autenticação.** Pessoas usam sessões: `POST /auth/login` devolve um `token`, enviado depois em `Authorization: Bearer <token>`; `POST /auth/logout` invalida-o. Scripts podem usar a chave de serviço no cabeçalho `X-API-Key`.
 
@@ -298,27 +305,27 @@ Documentação interativa em **http://localhost:8000/docs**.
 | `GET`, `POST` | `/users/` | admin | Lista e cria utilizadores |
 | `PATCH` | `/users/{id}` | admin | Altera perfil, estado ou palavra-passe |
 
-**Exemplo no PowerShell** (o `Get-Credential` pede o utilizador e a palavra-passe sem mostrar a palavra-passe nem a guardar no histórico):
+**Exemplo no PowerShell** (o `Get-Credential` pede o utilizador e a palavra-passe sem mostrar a palavra-passe nem a guardar no histórico). O PowerShell 5.1 não tem opção para ignorar o certificado, por isso precisa da [CA local instalada](docs/ARQUITETURA.md#confiar-na-ca-local-do-caddy-no-windows):
 
 ```powershell
 $cred = Get-Credential
 $body = @{ username = $cred.UserName; password = $cred.GetNetworkCredential().Password } | ConvertTo-Json
-$session = Invoke-RestMethod -Method Post -Uri http://localhost:8000/auth/login -ContentType "application/json" -Body $body
+$session = Invoke-RestMethod -Method Post -Uri https://localhost:8443/api/auth/login -ContentType "application/json" -Body $body
 $headers = @{ Authorization = "Bearer $($session.token)" }
 
-Invoke-RestMethod -Method Post -Uri http://localhost:8000/threats/analyze -Headers $headers -ContentType "application/json" `
+Invoke-RestMethod -Method Post -Uri https://localhost:8443/api/threats/analyze -Headers $headers -ContentType "application/json" `
   -Body '{"ip_address": "203.0.113.7", "threat_type": "Brute Force", "description": "500 failed SSH logins in 2 minutes against root."}'
 ```
 
-O mesmo com `curl` no Linux ou no Git Bash:
+O mesmo com `curl` no Linux ou no Git Bash, validando o certificado com a CA do Caddy (`caddy-root.crt`, exportado como no [guia](docs/ARQUITETURA.md#confiar-na-ca-local-do-caddy-no-windows)):
 
 ```bash
 read -s -p "Palavra-passe: " PASS; echo
-TOKEN=$(curl -s -X POST http://localhost:8000/auth/login -H "Content-Type: application/json" \
+TOKEN=$(curl -s --cacert caddy-root.crt -X POST https://localhost:8443/api/auth/login -H "Content-Type: application/json" \
   -d "{\"username\": \"ana\", \"password\": \"$PASS\"}" | python -c "import json,sys; print(json.load(sys.stdin)['token'])")
 unset PASS
 
-curl -X POST http://localhost:8000/threats/analyze \
+curl --cacert caddy-root.crt -X POST https://localhost:8443/api/threats/analyze \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"ip_address": "203.0.113.7", "threat_type": "Brute Force", "description": "500 tentativas de login SSH falhadas em 2 minutos contra a conta root."}'
 ```
@@ -393,6 +400,7 @@ No PowerShell 5.1, o `>` grava em UTF-16; para um ficheiro UTF-8, use o Git Bash
 - **Sessões** com token aleatório, guardado na base de dados só como hash SHA-256, com validade configurável. Sair, desativar a conta ou trocar a palavra-passe invalida as sessões.
 - **Login sem revelar contas.** A mesma mensagem para utilizador inexistente, desativado ou palavra-passe errada, e um tempo de resposta equivalente (quando a conta não existe, é verificado um hash falso com o mesmo custo). As tentativas contam por nome, exista a conta ou não, e bloqueiam o login durante 15 minutos depois de 5 falhas.
 - **Contentor do dashboard sem credenciais.** Não recebe a `API_KEY`, a palavra-passe do PostgreSQL nem os segredos do n8n e dos alertas.
+- **HTTPS local com o Caddy**, com `Strict-Transport-Security`, `X-Content-Type-Options`, `X-Frame-Options` e `Referrer-Policy`. A API e o dashboard só são acessíveis através do proxy.
 - **Portas só em `127.0.0.1`**; o Ollama só é acessível pela rede interna do Compose.
 - **Webhook do n8n autenticado** com o cabeçalho `X-NetSentinel-Secret`; o IP é validado antes de chegar ao nó da firewall.
 - **Dados não confiáveis tratados como tal:** delimitadores no prompt da IA, fórmulas neutralizadas no CSV exportado e alertas do Discord sem menções.
@@ -400,7 +408,7 @@ No PowerShell 5.1, o `>` grava em UTF-16; para um ficheiro UTF-8, use o Git Bash
 
 ### Limitações conhecidas
 
-- **Sem HTTPS.** Palavras-passe, tokens e o segredo do webhook viajam sem cifra entre os serviços. Na configuração atual, isso só acontece dentro desta máquina.
+- **Certificado só para uso local.** O certificado vem de uma CA criada pelo Caddy nesta máquina e não é válido para produção. Dentro da rede do Compose (proxy → API, dashboard → API, API → n8n), o tráfego continua em HTTP, e o n8n é aberto em HTTP em `127.0.0.1:5678`.
 - **Bloqueio de IPs simulado.** Ligar uma firewall real exige alterar o workflow do n8n e testar com cuidado.
 - **Bloqueio do login por nome.** Alguém pode bloquear de propósito o login de outra pessoa durante 15 minutos.
 - **Chave de serviço com acesso total.** Se for usada, quem a tiver é admin; deixe-a vazia se não for necessária.
@@ -410,12 +418,12 @@ No PowerShell 5.1, o `>` grava em UTF-16; para um ficheiro UTF-8, use o Git Bash
 - **Manipulação da IA.** As instruções e os delimitadores reduzem o risco de um incidente manipular o modelo, mas não o eliminam. O bloqueio é sempre uma decisão humana: a classificação nunca bloqueia um IP sozinha.
 - **Uma tarefa por processo.** A tarefa periódica corre dentro da API; com vários workers do `uvicorn`, cada um teria a sua.
 
-Antes de usar fora desta máquina: coloque os serviços atrás de um proxy com HTTPS, mantenha as portas fechadas ao exterior e use segredos fortes e exclusivos em todas as variáveis.
+Antes de usar fora desta máquina: troque o certificado interno por um de uma CA pública (com um domínio real, o Caddy obtém-no sozinho), mantenha as outras portas fechadas ao exterior e use segredos fortes e exclusivos em todas as variáveis.
 
 ## Próximos passos
 
 - [ ] Integração com uma firewall real (`ufw` ou `iptables`)
-- [ ] Proxy com HTTPS
+- [x] Proxy com HTTPS (local, com Caddy)
 - [ ] Registo de auditoria e troca da própria palavra-passe
 - [ ] Fluxo do LangGraph com mais etapas, como enriquecimento de IPs
 - [ ] Avaliação dos modelos com um conjunto maior de incidentes

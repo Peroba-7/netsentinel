@@ -6,3 +6,4 @@ __pycache__/
 *.db
 backup*.sql
 testar-login.ps1
+caddy-root.crt

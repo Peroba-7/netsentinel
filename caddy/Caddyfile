@@ -1,0 +1,39 @@
+# Proxy reverso do NetSentinel com HTTPS local.
+# https://localhost:8443       -> dashboard (Streamlit, com WebSocket)
+# https://localhost:8443/api/* -> API (o prefixo /api é retirado antes de chegar à API)
+# http://localhost:8080        -> redireciona para HTTPS
+{
+	http_port 8080
+	https_port 8443
+	# A CA local fica no volume caddy_data; não tenta instalá-la no sistema do contentor.
+	skip_install_trust
+}
+
+localhost {
+	# Certificado emitido pela CA interna do Caddy. Só serve para uso local.
+	tls internal
+
+	header {
+		# Valor curto de propósito: em localhost, o HSTS vale para todas as portas deste nome.
+		Strict-Transport-Security "max-age=86400"
+		X-Content-Type-Options "nosniff"
+		# SAMEORIGIN e não DENY: o Streamlit usa iframes da mesma origem em alguns componentes.
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	handle_path /api/* {
+		reverse_proxy api:8000
+	}
+
+	# O reverse_proxy do Caddy passa o upgrade para WebSocket sem configuração extra.
+	handle {
+		reverse_proxy dashboard:8501
+	}
+}
+
+# O redirecionamento automático do Caddy omitiria a porta 8443; este é explícito.
+http://localhost, http://127.0.0.1 {
+	redir https://localhost:8443{uri} permanent
+}

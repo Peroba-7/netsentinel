@@ -6,9 +6,11 @@ Este documento explica as principais decisões técnicas do NetSentinel: o probl
 
 ```mermaid
 flowchart LR
-    browser(["Navegador"]) --> dash["Dashboard (Streamlit)<br/>só API_URL"]
-    dash -->|"Authorization: Bearer"| api["API (FastAPI)"]
-    script(["Scripts"]) -.->|"X-API-Key"| api
+    browser(["Navegador"]) -->|"HTTPS :8443"| caddy["Caddy<br/>tls internal"]
+    script(["Scripts"]) -.->|"HTTPS :8443/api<br/>X-API-Key"| caddy
+    caddy -->|"/"| dash["Dashboard (Streamlit)<br/>só API_URL"]
+    caddy -->|"/api (prefixo retirado)"| api["API (FastAPI)"]
+    dash -->|"Authorization: Bearer"| api
     api --> pg[("PostgreSQL")]
     api --> redis[("Redis")]
     api --> ollama["Ollama"]
@@ -120,6 +122,79 @@ Para isso:
 **Resultado.** Se o contentor do dashboard for comprometido, quem lá estiver tem apenas o endereço da API e as sessões de quem estiver a usá-lo nesse momento, limitadas ao perfil de cada pessoa e à validade da sessão.
 
 **Custo.** O dashboard não pode ler dados diretamente da base de dados nem fazer nada sem uma sessão. Neste projeto isso não é uma limitação, porque tudo passa pela API.
+
+---
+
+## 4. HTTPS local com um proxy reverso (Caddy)
+
+**Problema.** O dashboard e a API eram servidos em HTTP nas portas 8501 e 8000. Palavras-passe e tokens de sessão passavam sem cifra entre o navegador e os serviços, e cada serviço tinha a sua porta no host.
+
+**Decisão.** Um serviço `caddy` (imagem `caddy:2.10.2-alpine`, versão fixa) à frente de tudo, configurado em [caddy/Caddyfile](../caddy/Caddyfile):
+
+| Endereço | Destino |
+|---|---|
+| `https://localhost:8443/` | Dashboard (`dashboard:8501`), incluindo o WebSocket do Streamlit |
+| `https://localhost:8443/api/*` | API (`api:8000`), com o prefixo `/api` retirado |
+| `http://localhost:8080` | Redirecionamento `301` para `https://localhost:8443` |
+
+Pormenores:
+
+- **Certificado.** `tls internal`: o Caddy cria uma CA própria e emite com ela o certificado de `localhost`, renovado automaticamente. A CA fica no volume `caddy_data`, para não mudar a cada recriação do contentor.
+- **Cabeçalhos.** `Strict-Transport-Security: max-age=86400`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN` e `Referrer-Policy: strict-origin-when-cross-origin`, e o cabeçalho `Server` é retirado. O HSTS tem só um dia porque, em `localhost`, vale para todas as portas desse nome; num domínio real usar-se-ia um ano. `SAMEORIGIN` em vez de `DENY` porque alguns componentes do Streamlit usam iframes da mesma origem.
+- **Prefixo `/api`.** O Caddy retira o prefixo e a API arranca com `UVICORN_ROOT_PATH=/api`, para o Swagger pedir `/api/openapi.json`. As rotas continuam as mesmas para quem chama a API diretamente na rede interna.
+- **WebSocket do Streamlit.** O `reverse_proxy` do Caddy passa o pedido de upgrade sem configuração extra. O cabeçalho `Host` chega intacto ao Streamlit, por isso a verificação de origem do WebSocket aceita a ligação.
+- **IP de origem.** A API aceita o `X-Forwarded-For` (`FORWARDED_ALLOW_IPS=*`) para o limite de pedidos ver o cliente e não o proxy. É seguro porque a porta 8000 já não está publicada: só os contentores do Compose lhe chegam, e o Caddy substitui qualquer `X-Forwarded-For` enviado pelo cliente.
+
+**Portas no host.** A 8000 (API) e a 8501 (dashboard) deixaram de estar publicadas; o único caminho do navegador e dos scripts é o Caddy. Mantiveram-se, sempre só em `127.0.0.1`:
+
+- **n8n (5678):** é a interface de administração dos workflows. Pô-lo atrás do proxy num subcaminho exigiria configurar o caminho base do n8n e os URLs dos webhooks, sem ganho real para uso local. É aberto em `http://127.0.0.1:5678` e não em `localhost`, porque o HSTS de `https://localhost` faria o navegador exigir HTTPS também nessa porta; o HSTS não se aplica a endereços IP. A API continua a chamar o webhook em `http://n8n:5678`, pela rede interna.
+- **PostgreSQL (5432) e Redis (6379):** usados pelo modo de desenvolvimento do README (`uvicorn` e `alembic` a correr fora do Docker).
+- **Swagger:** não precisa de porta própria; fica em `https://localhost:8443/api/docs`.
+
+**O dashboard continua a falar com a API em `http://api:8000`.** As chamadas à API são feitas pelo servidor do Streamlit, nunca pelo navegador. Passar essas chamadas pelo Caddy só acrescentaria um salto e obrigaria o contentor do dashboard a confiar na CA local.
+
+**Alternativas consideradas.**
+
+| Opção | Vantagens | Desvantagens |
+|---|---|---|
+| **Caddy** (escolhida) | Certificado local e renovação automáticos, WebSocket sem configuração, configuração curta | Menos difundido que o Nginx |
+| Nginx | O mais conhecido; muito flexível | Certificado gerado e renovado à mão (`openssl` ou `mkcert`), cabeçalhos de upgrade para o WebSocket escritos à mão |
+| Traefik | Descobre os serviços pelas labels do Docker | Configuração espalhada por labels; mais peças para dois serviços fixos |
+| TLS no próprio `uvicorn` e Streamlit | Sem serviço novo | Dois certificados para gerir e duas portas abertas, sem sítio comum para os cabeçalhos |
+
+**Limitações.**
+
+- **Não é um certificado para produção.** A CA existe só nesta máquina e nenhum outro computador confia nela. Com um domínio real, troca-se `tls internal` pelo nome do domínio e o Caddy obtém um certificado de uma CA pública (Let's Encrypt).
+- **A chave da CA fica no volume `caddy_data`.** Quem tiver acesso a esse volume pode emitir certificados em que este computador confia, enquanto a CA estiver instalada. Retire-a quando já não precisar dela.
+- **HTTP na rede interna.** O tráfego entre contentores (proxy → API, dashboard → API, API → n8n) continua em HTTP, dentro da rede do Compose.
+
+### Confiar na CA local do Caddy no Windows
+
+Sem este passo tudo funciona, mas o navegador mostra um aviso de certificado, o `curl.exe` precisa de `-k` e o `Invoke-RestMethod` do PowerShell 5.1 recusa a ligação.
+
+```powershell
+# 1. Copiar o certificado da CA (só a parte pública) para a pasta do projeto
+docker cp netsentinel-caddy:/data/caddy/pki/authorities/local/root.crt .\caddy-root.crt
+
+# 2. Confiar nele, só para o seu utilizador (o Windows pede confirmação)
+Import-Certificate -FilePath .\caddy-root.crt -CertStoreLocation Cert:\CurrentUser\Root
+```
+
+Depois disto, o Edge e o Chrome aceitam `https://localhost:8443` sem aviso (pode ser preciso reiniciá-los). O Firefox pode usar a sua própria lista de CAs; nesse caso, importe o `caddy-root.crt` nas definições de certificados do Firefox. O `caddy-root.crt` está no `.gitignore`.
+
+O `curl.exe` do Windows passa a validar o certificado, mas precisa de `--ssl-no-revoke`, porque a CA local não publica lista de revogação:
+
+```powershell
+curl.exe --ssl-no-revoke https://localhost:8443/api/health
+```
+
+Para deixar de confiar na CA:
+
+```powershell
+Get-ChildItem Cert:\CurrentUser\Root | Where-Object Subject -like "*Caddy Local Authority*" | Remove-Item
+```
+
+Se o volume `caddy_data` for apagado, o Caddy cria uma CA nova e é preciso repetir os dois passos.
 
 ---
 
