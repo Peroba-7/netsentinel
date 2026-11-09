@@ -1,3 +1,5 @@
+from datetime import UTC, datetime, timedelta
+
 import pytest
 
 from app.agents import graph
@@ -239,3 +241,39 @@ def test_block_retry_updates_missing_reason(client, monkeypatch):
     )
 
     assert retry.json()["reason"] == "Port Scan, risco MÉDIO"
+
+
+def test_block_without_duration_is_permanent(client):
+    response = client.post("/threats/block", json={"ip_address": "10.0.0.1"})
+
+    assert response.json()["expires_at"] is None
+
+
+def test_block_with_duration_sets_expiry(client):
+    before = datetime.now(UTC)
+
+    response = client.post(
+        "/threats/block", json={"ip_address": "10.0.0.1", "duration_minutes": 30}
+    )
+
+    expires_at = datetime.fromisoformat(response.json()["expires_at"])
+    assert before + timedelta(minutes=30) <= expires_at <= datetime.now(UTC) + timedelta(minutes=30)
+    assert client.get("/threats/blocked").json()[0]["expires_at"] is not None
+
+
+@pytest.mark.parametrize("minutes", [0, -5, 10081, "muito"])
+def test_block_rejects_invalid_duration(client, minutes):
+    response = client.post(
+        "/threats/block", json={"ip_address": "10.0.0.1", "duration_minutes": minutes}
+    )
+
+    assert response.status_code == 422
+    assert client.get("/threats/blocked").json() == []
+
+
+def test_block_accepts_maximum_duration(client):
+    response = client.post(
+        "/threats/block", json={"ip_address": "10.0.0.1", "duration_minutes": 10080}
+    )
+
+    assert response.status_code == 200

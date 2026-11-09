@@ -17,6 +17,18 @@ def to_safe_csv(frame: pd.DataFrame) -> bytes:
     return frame.map(neutralize).to_csv(index=False).encode("utf-8-sig")
 
 
+# Opções da duração do bloqueio, em minutos; None é permanente.
+BLOCK_DURATIONS = {"30 min": 30, "1 hora": 60, "24 horas": 24 * 60, "Permanente": None}
+
+
+def format_expiry(value) -> str:
+    """Data de fim do bloqueio em UTC, ou "Permanente" quando não tem prazo."""
+    # O pandas transforma o None da API em NaN/NaT dentro da tabela.
+    if value is None or pd.isna(value):
+        return "Permanente"
+    return pd.Timestamp(value).tz_convert("UTC").strftime("%d/%m/%Y %H:%M UTC")
+
+
 def block_reason(incidents: pd.DataFrame, ip_address: str) -> str:
     """Motivo do bloqueio a partir do incidente mais recente do IP, ex.: "DDoS, risco ALTO"."""
     latest = incidents[incidents["ip_address"] == ip_address].sort_values("id").iloc[-1]
@@ -133,9 +145,17 @@ if not candidates:
     st.info("Todos os IPs registados já têm um pedido de bloqueio enviado.")
 else:
     selected_ip = st.selectbox("IP a bloquear", candidates)
+    duration = st.selectbox(
+        "Duração do bloqueio",
+        list(BLOCK_DURATIONS),
+        index=list(BLOCK_DURATIONS).index("Permanente"),
+        help="No fim do prazo, o IP é desbloqueado automaticamente.",
+    )
     if st.button("Pedir bloqueio", type="primary", icon=":material/block:"):
         try:
-            result = block_ip(selected_ip, block_reason(df, selected_ip))
+            result = block_ip(
+                selected_ip, block_reason(df, selected_ip), BLOCK_DURATIONS[duration]
+            )
         except ApiError as exc:
             st.error(str(exc), title="Não foi possível registar o bloqueio")
         else:
@@ -147,8 +167,10 @@ else:
 
 if blocked:
     st.subheader("Bloqueios ativos", anchor=False)
+    blocked_view = pd.DataFrame(blocked)
+    blocked_view["expira em"] = blocked_view["expires_at"].map(format_expiry)
     st.dataframe(
-        pd.DataFrame(blocked)[["ip_address", "reason", "created_at", "dispatched", "result"]],
+        blocked_view[["ip_address", "reason", "created_at", "expira em", "dispatched", "result"]],
         hide_index=True,
         alt="Lista de IPs com pedido de bloqueio",
     )

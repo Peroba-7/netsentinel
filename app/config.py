@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     TELEGRAM_BOT_TOKEN: str = ""
     TELEGRAM_CHAT_ID: str = ""
 
+    # Intervalo da tarefa que retira bloqueios com prazo vencido; 0 desativa a tarefa.
+    BLOCK_EXPIRY_INTERVAL_SECONDS: int = Field(default=60, ge=0)
+
     API_URL: str = "http://127.0.0.1:8000"  # usado pelo dashboard
 
 

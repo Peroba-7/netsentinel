@@ -1,4 +1,5 @@
 import logging
+from datetime import timedelta
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from pydantic import IPvAnyAddress
@@ -9,7 +10,7 @@ from app.agents.graph import threat_graph
 from app.core.rate_limit import enforce_rate_limit
 from app.core.security import verify_api_key
 from app.db.database import get_db
-from app.db.models import BlockedIPModel, ThreatModel
+from app.db.models import BlockedIPModel, ThreatModel, utcnow
 from app.schemas.threat import (
     STATUS_ANALYZED,
     BlockRequest,
@@ -141,7 +142,10 @@ def block_ip(request: BlockRequest, db: Session = Depends(get_db)):
 
     A API não altera nenhuma firewall: `dispatched` indica se o n8n aceitou o pedido e
     `result` guarda a resposta dele, por exemplo "bloqueado (simulado)".
-    Repetir o pedido volta a tentar o envio, se ainda não tiver sido aceite.
+    Com `duration_minutes`, o bloqueio é retirado automaticamente quando o prazo acaba;
+    sem ele, é permanente.
+    Repetir o pedido volta a tentar o envio, se ainda não tiver sido aceite. Um bloqueio já
+    aceite não muda: para alterar o prazo, retire-o e peça-o de novo.
     """
     ip_address = str(request.ip_address)
     record = db.get(BlockedIPModel, ip_address)
@@ -153,6 +157,11 @@ def block_ip(request: BlockRequest, db: Session = Depends(get_db)):
     # Numa nova tentativa, um motivo enviado agora substitui o anterior; sem motivo, mantém-se.
     if request.reason:
         record.reason = request.reason
+    record.expires_at = (
+        utcnow() + timedelta(minutes=request.duration_minutes)
+        if request.duration_minutes
+        else None
+    )
     record.result = dispatch_block(ip_address, record.reason)
     record.dispatched = record.result is not None
     db.add(record)

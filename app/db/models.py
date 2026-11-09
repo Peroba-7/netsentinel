@@ -29,3 +29,5 @@ class BlockedIPModel(SQLModel, table=True):
     dispatched: bool = False
     # Resposta do workflow, por exemplo "bloqueado (simulado)".
     result: str | None = None
+    # Fim do bloqueio; None é permanente. A tarefa de expiração retira-o depois desta hora.
+    expires_at: datetime | None = None

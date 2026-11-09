@@ -36,7 +36,7 @@ A classificação da IA serve de apoio à decisão e não substitui a avaliaçã
 - Análise de incidentes com classificação de risco: BAIXO, MÉDIO, ALTO ou CRÍTICO
 - Parecer técnico com ações recomendadas
 - Histórico com métricas, gráficos e exportação para CSV
-- Pedido de bloqueio de IPs em modo de simulação
+- Pedido de bloqueio de IPs em modo de simulação, permanente ou com prazo
 - Alertas por n8n, Discord e Telegram
 - API autenticada por chave, com limite de pedidos
 - Verificação do estado dos serviços em `/health`
@@ -258,7 +258,7 @@ As rotas `/threats` exigem o cabeçalho `X-API-Key`.
 | `GET` | `/threats/` | Sim | Lista incidentes, com `limit`, `offset` e os filtros `risk_level`, `ip_address` e `search` |
 | `GET` | `/threats/blocked` | Sim | Lista os IPs com bloqueio pedido |
 | `GET` | `/threats/{id}` | Sim | Devolve um incidente |
-| `POST` | `/threats/block` | Sim | Regista um bloqueio e envia o pedido ao n8n |
+| `POST` | `/threats/block` | Sim | Regista um bloqueio e envia o pedido ao n8n; `duration_minutes` (1 a 10080) opcional |
 | `DELETE` | `/threats/block/{ip}` | Sim | Retira o bloqueio; o n8n tem de aceitar o desbloqueio |
 
 ### Exemplo
@@ -308,6 +308,20 @@ Resposta abreviada:
 
 Se o n8n não aceitar o pedido, o IP fica com `dispatched: false`, o incidente não aparece como bloqueado e o pedido pode ser repetido.
 
+O motivo enviado pelo dashboard é o tipo e o risco do incidente mais recente do IP, por exemplo `Brute Force, risco ALTO`.
+
+### Bloqueios com prazo
+
+No dashboard, escolha a duração (30 min, 1 hora, 24 horas ou Permanente); na API, envie `duration_minutes`, de 1 a 10080 (7 dias). Sem duração, o bloqueio é permanente. A coluna "expira em" de **Bloqueios ativos** mostra o fim do prazo, em UTC.
+
+```bash
+curl -X POST http://localhost:8000/threats/block   -H "X-API-Key: $API_KEY" -H "Content-Type: application/json"   -d '{"ip_address": "203.0.113.7", "duration_minutes": 60}'
+```
+
+Uma tarefa dentro da API verifica os prazos a cada minuto (`BLOCK_EXPIRY_INTERVAL_SECONDS`). Quando um prazo acaba, envia `ip.unblock` ao n8n, como o desbloqueio manual, e só remove o registo se o n8n aceitar. Se o n8n falhar, o bloqueio mantém-se e é tentado de novo no minuto seguinte. Um pedido que o n8n nunca aceitou é apenas removido.
+
+Pedir de novo um bloqueio já aceite não altera o prazo: retire o bloqueio e peça-o outra vez. A tarefa corre no processo da API; com vários workers do `uvicorn`, cada um teria a sua.
+
 Para ver os bloqueios registados:
 
 ```bash
@@ -322,7 +336,7 @@ O webhook `netsentinel` recebe três eventos:
 
 ```json
 {"event": "threat.analyzed", "id": 1, "ip_address": "203.0.113.7", "risk_level": "ALTO"}
-{"event": "ip.block", "ip_address": "203.0.113.7", "reason": null}
+{"event": "ip.block", "ip_address": "203.0.113.7", "reason": "Brute Force, risco ALTO"}
 {"event": "ip.unblock", "ip_address": "203.0.113.7"}
 ```
 
@@ -383,6 +397,7 @@ Todas as variáveis estão em [.env.example](.env.example).
 | `OLLAMA_MODEL` | Não | Modelo de IA; o predefinido é `llama3` |
 | `OLLAMA_TIMEOUT_SECONDS` | Não | Tempo máximo de resposta do modelo; o predefinido é 300 |
 | `RATE_LIMIT_PER_MINUTE` | Não | Análises por cliente, por minuto; 0 desativa |
+| `BLOCK_EXPIRY_INTERVAL_SECONDS` | Não | Intervalo da verificação de bloqueios com prazo; o predefinido é 60, 0 desativa |
 | `N8N_WEBHOOK_URL` | Não | Endereço do webhook do n8n |
 | `N8N_WEBHOOK_SECRET` | Com n8n | Segredo enviado no cabeçalho `X-NetSentinel-Secret`; o webhook rejeita pedidos sem ele |
 | `DISCORD_WEBHOOK_URL` | Não | Webhook para alertas no Discord |
@@ -416,7 +431,7 @@ Antes de usar fora desta máquina, é necessário:
 
 - [ ] Integração com uma firewall real (`ufw` ou `iptables`)
 - [x] Desbloqueio de IPs
-- [ ] Bloqueios com prazo
+- [x] Bloqueios com prazo
 - [x] Filtros e pesquisa no histórico
 - [ ] Fluxo do LangGraph com mais etapas, como enriquecimento de IPs
 

@@ -55,9 +55,14 @@ class ThreatResponse(BaseModel):
     status: str
 
 
+MAX_BLOCK_MINUTES = 7 * 24 * 60  # 7 dias
+
+
 class BlockRequest(BaseModel):
     ip_address: IPvAnyAddress
     reason: str | None = Field(default=None, max_length=500)
+    # Sem duração, o bloqueio é permanente.
+    duration_minutes: int | None = Field(default=None, ge=1, le=MAX_BLOCK_MINUTES)
 
 
 class BlockResponse(BaseModel):
@@ -68,6 +73,7 @@ class BlockResponse(BaseModel):
     created_at: datetime
     dispatched: bool
     result: str | None
+    expires_at: datetime | None
 
 
 class UnblockResponse(BaseModel):

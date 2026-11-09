@@ -1,4 +1,8 @@
+import asyncio
+import contextlib
 import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 import httpx
 import redis
@@ -11,14 +15,31 @@ from app.api import threats
 from app.config import settings
 from app.core.rate_limit import redis_client
 from app.db.database import engine
+from app.services.block_expiry import expiry_loop
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    # Retira os bloqueios com prazo vencido. Corre neste processo: com vários workers do
+    # uvicorn, cada um teria a sua tarefa.
+    task = None
+    if settings.BLOCK_EXPIRY_INTERVAL_SECONDS > 0:
+        task = asyncio.create_task(expiry_loop(engine, settings.BLOCK_EXPIRY_INTERVAL_SECONDS))
+    yield
+    if task is not None:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
 
 # As tabelas não são criadas aqui: o Alembic aplica as migrações antes de a API arrancar.
 app = FastAPI(
     title="NetSentinel API",
     version="3.0.0",
     description="Plataforma de análise de ameaças com LangGraph, Ollama e PostgreSQL.",
+    lifespan=lifespan,
 )
 app.include_router(threats.router)
 

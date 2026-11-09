@@ -47,6 +47,7 @@ def api(monkeypatch):
                 {
                     "ip_address": "10.0.0.1",
                     "reason": None,
+                    "expires_at": None,
                     "created_at": "2026-11-06T12:00:00Z",
                     "dispatched": True,
                     "result": "bloqueado (simulado)",
@@ -167,6 +168,7 @@ def test_history_warns_about_undispatched_block(api):
             {
                 "ip_address": "10.0.0.1",
                 "reason": None,
+                "expires_at": None,
                 "created_at": "x",
                 "dispatched": False,
                 "result": None,
@@ -186,6 +188,7 @@ def test_history_flags_simulated_blocks(api):
             {
                 "ip_address": "10.0.0.1",
                 "reason": None,
+                "expires_at": None,
                 "created_at": "x",
                 "dispatched": True,
                 "result": "bloqueado (simulado)",
@@ -204,7 +207,46 @@ def test_history_requests_block(api):
 
     assert not page.exception
     block_call = next(call for call in api["calls"] if call[:2] == ("POST", "/threats/block"))
-    assert block_call[2]["json"] == {"ip_address": "10.0.0.1", "reason": "DDoS, risco ALTO"}
+    assert block_call[2]["json"] == {
+        "ip_address": "10.0.0.1",
+        "reason": "DDoS, risco ALTO",
+        "duration_minutes": None,
+    }
+
+
+@pytest.mark.parametrize("label,minutes", [("30 min", 30), ("1 hora", 60), ("24 horas", 1440)])
+def test_history_sends_chosen_block_duration(api, label, minutes):
+    page = open_page("history.py")
+    duration = next(box for box in page.selectbox if box.label == "Duração do bloqueio")
+
+    assert duration.options == ["30 min", "1 hora", "24 horas", "Permanente"]
+    assert duration.value == "Permanente"
+    duration.set_value(label).run()
+    page.button[0].click().run()
+
+    block_call = next(call for call in api["calls"] if call[:2] == ("POST", "/threats/block"))
+    assert block_call[2]["json"]["duration_minutes"] == minutes
+
+
+def test_history_shows_block_expiry(api):
+    entry = {
+        "ip_address": "10.0.0.1",
+        "reason": "DDoS, risco ALTO",
+        "created_at": "2026-11-08T12:00:00Z",
+        "dispatched": True,
+        "result": "bloqueado (simulado)",
+    }
+    api["routes"][("GET", "/threats/blocked")] = FakeResponse(
+        [
+            {**entry, "expires_at": "2026-11-08T12:30:00Z"},
+            {**entry, "ip_address": "10.0.0.2", "expires_at": None},
+        ]
+    )
+
+    page = open_page("history.py")
+
+    table = page.dataframe[-1].value
+    assert list(table["expira em"]) == ["08/11/2026 12:30 UTC", "Permanente"]
 
 
 def test_history_block_reason_uses_latest_incident_of_ip(api):
@@ -253,6 +295,7 @@ def test_history_unblocks_ip(api):
             {
                 "ip_address": "10.0.0.1",
                 "reason": None,
+                "expires_at": None,
                 "created_at": "x",
                 "dispatched": True,
                 "result": "bloqueado (simulado)",

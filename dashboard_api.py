@@ -56,9 +56,14 @@ def list_blocked() -> list[dict]:
     return _request("GET", "/threats/blocked")
 
 
-def block_ip(ip_address: str, reason: str | None = None) -> dict:
+def block_ip(
+    ip_address: str, reason: str | None = None, duration_minutes: int | None = None
+) -> dict:
+    """Pede o bloqueio; sem `duration_minutes`, o bloqueio é permanente."""
     return _request(
-        "POST", "/threats/block", json={"ip_address": ip_address, "reason": reason}
+        "POST",
+        "/threats/block",
+        json={"ip_address": ip_address, "reason": reason, "duration_minutes": duration_minutes},
     )
 
 

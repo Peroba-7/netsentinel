@@ -8,6 +8,8 @@ os.environ.update(
     DISCORD_WEBHOOK_URL="",
     TELEGRAM_BOT_TOKEN="",
     TELEGRAM_CHAT_ID="",
+    # A tarefa de expiração é testada diretamente; não deve correr com o TestClient.
+    BLOCK_EXPIRY_INTERVAL_SECONDS="0",
 )
 
 import pytest  # noqa: E402
