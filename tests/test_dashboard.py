@@ -272,6 +272,44 @@ def test_history_shows_block_expiry(api):
     assert list(table["expira em"]) == ["08/11/2026 12:30 UTC", "Permanente"]
 
 
+def test_history_shows_dash_when_block_has_no_reason(api):
+    entry = {
+        "created_at": "2026-11-08T12:00:00Z",
+        "dispatched": True,
+        "result": "bloqueado (simulado)",
+        "expires_at": None,
+    }
+    api["routes"][("GET", "/threats/blocked")] = FakeResponse(
+        [
+            {**entry, "ip_address": "10.0.0.1", "reason": None},
+            {**entry, "ip_address": "10.0.0.2", "reason": "  "},
+            {**entry, "ip_address": "10.0.0.3", "reason": "DDoS, risco ALTO"},
+        ]
+    )
+
+    page = open_page("history.py")
+
+    assert list(page.dataframe[-1].value["reason"]) == ["—", "—", "DDoS, risco ALTO"]
+
+
+def test_history_table_headers_are_in_portuguese(api):
+    page = open_page("history.py")
+
+    assert list(page.dataframe[0].value.columns) == [
+        "id",
+        "IP",
+        "País",
+        "Organização",
+        "Tipo",
+        "Descrição",
+        "Risco",
+        "Parecer da IA",
+        "Data",
+        "Estado",
+        "IP bloqueado",
+    ]
+
+
 def test_history_block_reason_uses_latest_incident_of_ip(api):
     older = {**THREAT, "id": 1, "threat_type": "ssh brute force", "risk_level": "MÉDIO"}
     newer = {**THREAT, "id": 2, "threat_type": "Port Scan", "risk_level": "CRÍTICO"}
@@ -358,7 +396,7 @@ def test_history_shows_ip_block_apart_from_incident_status(api):
     page = open_page("history.py")
 
     table = page.dataframe[0].value
-    assert list(table["status"]) == ["ANALISADO", "ANALISADO"]
+    assert list(table["Estado"]) == ["ANALISADO", "ANALISADO"]
     assert list(table["IP bloqueado"]) == ["Sim (simulado)", ""]
     assert "ip_blocked" not in table.columns
 
@@ -574,7 +612,7 @@ def test_history_shows_country_and_organization_with_attribution(api):
     assert not page.exception
     table = page.dataframe[0].value
     columns = list(table.columns)
-    assert columns[columns.index("ip_address") + 1 : columns.index("ip_address") + 3] == [
+    assert columns[columns.index("IP") + 1 : columns.index("IP") + 3] == [
         "País",
         "Organização",
     ]
@@ -603,6 +641,39 @@ def test_csv_includes_origin_and_neutralizes_organization_formula():
 
     assert csv.splitlines()[0] == "País,Organização"
     assert "'=HYPERLINK(1)" in csv
+
+
+def test_csv_has_the_table_columns_and_neutralizes_formulas():
+    # Executa as funções do topo da página (cabeçalhos, CSV) sem correr a página.
+    source = (PAGES / "history.py").read_text(encoding="utf-8")
+    start = source.index("# Cabeçalhos mostrados")
+    namespace = {"pd": pd}
+    exec(source[start : source.index("user = require_role")], namespace)  # noqa: S102
+    frame = pd.DataFrame(
+        [
+            {
+                "id": 1,
+                "ip_address": "8.8.8.8",
+                "País": "US · Estados Unidos",
+                "Organização": "=HYPERLINK(1)",
+                "threat_type": "DDoS",
+                "description": "@SUM(A1)",
+                "risk_level": "ALTO",
+                "ai_analysis": "-2+3",
+                "timestamp": "2026-11-06T12:00:00Z",
+                "status": "ANALISADO",
+                "IP bloqueado": "",
+            }
+        ]
+    )
+
+    csv = namespace["to_safe_csv"](namespace["for_display"](frame)).decode("utf-8-sig")
+
+    header, row = csv.splitlines()
+    assert header == (
+        "id,IP,País,Organização,Tipo,Descrição,Risco,Parecer da IA,Data,Estado,IP bloqueado"
+    )
+    assert "'=HYPERLINK(1)" in row and "'@SUM(A1)" in row and "'-2+3" in row
 
 
 def test_submit_shows_origin_as_plain_text_with_attribution(api):

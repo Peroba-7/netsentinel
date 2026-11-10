@@ -17,6 +17,28 @@ from dashboard_format import DBIP_ATTRIBUTION, country_label, has_origin_data, o
 
 ORIGIN_FIELDS = ["ip_scope", "country_code", "country_name", "asn", "as_org"]
 
+# Cabeçalhos mostrados na tabela e no CSV. A lógica da página continua a usar os nomes da API.
+COLUMN_LABELS = {
+    "ip_address": "IP",
+    "threat_type": "Tipo",
+    "description": "Descrição",
+    "risk_level": "Risco",
+    "ai_analysis": "Parecer da IA",
+    "timestamp": "Data",
+    "status": "Estado",
+}
+
+
+def for_display(frame: pd.DataFrame) -> pd.DataFrame:
+    return frame.rename(columns=COLUMN_LABELS)
+
+
+def reason_label(value) -> str:
+    """Motivo de um bloqueio, ou "—" quando não foi indicado."""
+    if isinstance(value, str) and value.strip():
+        return value
+    return "—"
+
 
 def to_safe_csv(frame: pd.DataFrame) -> bytes:
     """Exporta CSV sem fórmulas: as descrições vêm de terceiros e o Excel executaria "=..."."""
@@ -148,12 +170,18 @@ if len(view) != len(df):
 if view.empty:
     st.info("Nenhum incidente corresponde aos filtros.")
 else:
-    st.dataframe(view, hide_index=True, alt="Lista de incidentes registados")
+    st.dataframe(
+        for_display(view),
+        hide_index=True,
+        alt="Lista de incidentes registados",
+        # Mais largura para o nome da organização não ficar cortado.
+        column_config={"Organização": st.column_config.TextColumn(width="large")},
+    )
 if has_origin_data(threats):
     st.caption(DBIP_ATTRIBUTION)
 st.download_button(
     "Descarregar relatório (CSV)",
-    data=to_safe_csv(view),
+    data=to_safe_csv(for_display(view)),
     file_name="netsentinel_relatorio.csv",
     mime="text/csv",
     icon=":material/download:",
@@ -208,6 +236,7 @@ if blocked:
     st.subheader("Bloqueios ativos", anchor=False)
     blocked_view = pd.DataFrame(blocked)
     blocked_view["expira em"] = blocked_view["expires_at"].map(format_expiry)
+    blocked_view["reason"] = blocked_view["reason"].map(reason_label)
     st.dataframe(
         blocked_view[["ip_address", "reason", "created_at", "expira em", "dispatched", "result"]],
         hide_index=True,
