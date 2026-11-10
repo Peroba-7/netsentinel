@@ -108,7 +108,7 @@ tests/               Testes automáticos
 
 ## Capturas de ecrã
 
-Os dados nas capturas são fictícios e usam IPs de documentação, como `203.0.113.x`, exceto o `8.8.8.8` (DNS público da Google), usado no histórico para mostrar o país e a organização do IP. As capturas de submissão, de resposta a incidentes e do perfil leitor são anteriores à origem dos IPs e aos cabeçalhos da tabela em português.
+Os dados nas capturas são fictícios e usam IPs de documentação, como `203.0.113.x`, exceto o `8.8.8.8` (DNS público da Google), usado para mostrar o país e a organização do IP. A captura do perfil leitor é anterior à origem dos IPs, aos cabeçalhos das tabelas em português e às datas formatadas.
 
 ![Início de sessão](docs/img/01-login.jpg)
 *Início de sessão*
@@ -116,11 +116,11 @@ Os dados nas capturas são fictícios e usam IPs de documentação, como `203.0.
 ![Histórico com perfil admin](docs/img/02-historico.jpg)
 *Histórico com perfil admin*
 
-![Submeter incidente e resultado da análise](docs/img/03-submeter.jpg)
-*Submeter incidente e resultado da análise*
+![Submeter incidente, com o resultado da análise e a origem do IP](docs/img/03-submeter.jpg)
+*Submeter incidente, com o resultado da análise e a origem do IP*
 
-![Resposta a incidentes e bloqueios ativos](docs/img/04-bloqueios.jpg)
-*Resposta a incidentes e bloqueios ativos*
+![Resposta a incidentes e bloqueios ativos, com datas em UTC](docs/img/04-bloqueios.jpg)
+*Resposta a incidentes e bloqueios ativos, com datas em UTC*
 
 ![Histórico com perfil leitor, sem menu de navegação](docs/img/05-leitor.jpg)
 *Histórico com perfil leitor, sem menu de navegação*
