@@ -66,12 +66,23 @@ def to_safe_csv(frame: pd.DataFrame) -> bytes:
 BLOCK_DURATIONS = {"30 min": 30, "1 hora": 60, "24 horas": 24 * 60, "Permanente": None}
 
 
-def format_expiry(value) -> str:
-    """Data de fim do bloqueio em UTC, ou "Permanente" quando não tem prazo."""
+def format_utc(value) -> str:
+    """Data no formato "dd/mm/aaaa HH:MM UTC"; vazia sem data, intacta se não for uma data."""
     # O pandas transforma o None da API em NaN/NaT dentro da tabela.
     if value is None or pd.isna(value):
-        return "Permanente"
-    return pd.Timestamp(value).tz_convert("UTC").strftime("%d/%m/%Y %H:%M UTC")
+        return ""
+    try:
+        timestamp = pd.Timestamp(value)
+    except (ValueError, TypeError):
+        return str(value)
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.tz_localize("UTC")
+    return timestamp.tz_convert("UTC").strftime("%d/%m/%Y %H:%M UTC")
+
+
+def format_expiry(value) -> str:
+    """Data de fim do bloqueio em UTC, ou "Permanente" quando não tem prazo."""
+    return format_utc(value) or "Permanente"
 
 
 def block_reason(incidents: pd.DataFrame, ip_address: str) -> str:
@@ -246,6 +257,7 @@ else:
 if blocked:
     st.subheader("Bloqueios ativos", anchor=False)
     blocked_view = pd.DataFrame(blocked)
+    blocked_view["created_at"] = blocked_view["created_at"].map(format_utc)
     blocked_view["expires_at"] = blocked_view["expires_at"].map(format_expiry)
     blocked_view["reason"] = blocked_view["reason"].map(reason_label)
     st.dataframe(

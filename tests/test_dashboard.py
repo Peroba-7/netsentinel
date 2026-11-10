@@ -298,6 +298,29 @@ def test_active_blocks_headers_are_in_portuguese(api):
         "Resultado",
     ]
     assert list(table["Resultado"]) == ["bloqueado (simulado)"]
+    # "Criado em" com o mesmo formato de "Expira em".
+    assert list(table["Criado em"]) == ["08/11/2026 12:00 UTC"]
+    assert list(table["Expira em"]) == ["Permanente"]
+
+
+def test_created_at_converts_other_time_zones_to_utc(api):
+    api["routes"][("GET", "/threats/blocked")] = FakeResponse(
+        [
+            {
+                "ip_address": "10.0.0.1",
+                "reason": None,
+                "created_at": "2026-11-08T13:05:00+01:00",
+                "expires_at": "2026-11-08T14:05:00+01:00",
+                "dispatched": True,
+                "result": "bloqueado (simulado)",
+            }
+        ]
+    )
+
+    table = open_page("history.py").dataframe[-1].value
+
+    assert list(table["Criado em"]) == ["08/11/2026 12:05 UTC"]
+    assert list(table["Expira em"]) == ["08/11/2026 13:05 UTC"]
 
 
 def test_history_shows_dash_when_block_has_no_reason(api):
