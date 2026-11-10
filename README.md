@@ -108,7 +108,7 @@ tests/               Testes automáticos
 
 ## Capturas de ecrã
 
-Os dados nas capturas são fictícios e usam IPs de documentação, como `203.0.113.x`. As capturas são anteriores às colunas de país e organização.
+Os dados nas capturas são fictícios e usam IPs de documentação, como `203.0.113.x`, exceto o `8.8.8.8` (DNS público da Google), usado no histórico para mostrar o país e a organização do IP. As capturas de submissão, de resposta a incidentes e do perfil leitor são anteriores à origem dos IPs e aos cabeçalhos da tabela em português.
 
 ![Início de sessão](docs/img/01-login.jpg)
 *Início de sessão*
