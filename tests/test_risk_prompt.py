@@ -133,6 +133,12 @@ def test_few_shot_examples_differ_from_eval_cases():
     assert not any(example["incident"][2] in descriptions for example in FEW_SHOT_EXAMPLES)
 
 
+def test_prompt_asks_for_european_portuguese_with_masculine_ip():
+    assert "português europeu" in SYSTEM_PROMPT
+    assert '"o IP"' in SYSTEM_PROMPT and '"o endereço IP"' in SYSTEM_PROMPT
+    assert 'nunca "a IP"' in SYSTEM_PROMPT
+
+
 def test_prompt_treats_ip_origin_as_context_only():
     assert "servem apenas de contexto" in SYSTEM_PROMPT
     assert "não aumenta o nível" in SYSTEM_PROMPT
