@@ -58,6 +58,12 @@ class ThreatResponse(BaseModel):
     ip_blocked: bool = False
     # Resposta do n8n ao bloqueio do IP, por exemplo "bloqueado (simulado)".
     ip_block_result: str | None = None
+    # Origem do IP na base local; vazia em redes reservadas, IPs sem registo ou sem base.
+    ip_scope: str | None = None
+    country_code: str | None = None
+    country_name: str | None = None
+    asn: int | None = None
+    as_org: str | None = None
 
 
 MAX_BLOCK_MINUTES = 7 * 24 * 60  # 7 dias

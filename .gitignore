@@ -7,3 +7,4 @@ __pycache__/
 backup*.sql
 testar-login.ps1
 caddy-root.crt
+data/geoip/

@@ -10,7 +10,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app ./app
 COPY app_pages ./app_pages
 COPY .streamlit ./.streamlit
-COPY dashboard.py dashboard_api.py dashboard_nav.py ./
+COPY dashboard.py dashboard_api.py dashboard_nav.py dashboard_format.py ./
 COPY alembic.ini ./
 COPY migrations ./migrations
 

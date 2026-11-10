@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     TELEGRAM_BOT_TOKEN: str = ""
     TELEGRAM_CHAT_ID: str = ""
 
+    # Bases locais DB-IP Lite (scripts/update-geoip.ps1). Vazias, a origem dos IPs fica desligada.
+    GEOIP_COUNTRY_DB: str = str(BASE_DIR / "data" / "geoip" / "dbip-country-lite.mmdb")
+    GEOIP_ASN_DB: str = str(BASE_DIR / "data" / "geoip" / "dbip-asn-lite.mmdb")
+
     # Intervalo da tarefa que retira bloqueios com prazo vencido; 0 desativa a tarefa.
     BLOCK_EXPIRY_INTERVAL_SECONDS: int = Field(default=60, ge=0)
 

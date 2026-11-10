@@ -299,3 +299,96 @@ def test_block_accepts_maximum_duration(client):
     )
 
     assert response.status_code == 200
+
+
+# --- Origem do IP (bases simuladas; nenhum teste lê as bases reais) ---------------------------
+
+
+class FakeGeoDatabase:
+    def __init__(self, records):
+        self.records = records
+
+    def get(self, ip_address):
+        return self.records.get(ip_address)
+
+
+@pytest.fixture
+def geo(monkeypatch):
+    from app.services import geoip_service
+
+    monkeypatch.setattr(
+        geoip_service,
+        "country_database",
+        FakeGeoDatabase(
+            {"8.8.8.8": {"country": {"iso_code": "US", "names": {"pt-BR": "Estados Unidos"}}}}
+        ),
+    )
+    monkeypatch.setattr(
+        geoip_service,
+        "asn_database",
+        FakeGeoDatabase(
+            {
+                "8.8.8.8": {
+                    "autonomous_system_number": 15169,
+                    "autonomous_system_organization": "Exemplo LLC",
+                }
+            }
+        ),
+    )
+    prompts = []
+
+    def fake_llm(messages):
+        prompts.append(messages[-1]["content"])
+        return '{"risk_level": "MÉDIO", "analysis": "Vigiar."}'
+
+    monkeypatch.setattr(graph, "generate_analysis", fake_llm)
+    return prompts
+
+
+def test_analyze_saves_origin_of_public_ip_and_sends_it_to_the_model(client, geo):
+    body = analyze(client, ip_address="8.8.8.8").json()
+
+    assert body["ip_scope"] == "publico"
+    assert (body["country_code"], body["country_name"]) == ("US", "Estados Unidos")
+    assert (body["asn"], body["as_org"]) == (15169, "Exemplo LLC")
+    saved = client.get(f"/threats/{body['id']}").json()
+    assert saved["as_org"] == "Exemplo LLC"
+    incident = geo[0].split("<incidente>\n", 1)[1]
+    assert "País de origem (base local de IPs): Estados Unidos (US)\n" in incident
+    assert "Organização (ASN): AS15169 Exemplo LLC\n" in incident
+
+
+def test_analyze_reserved_ip_has_no_origin_lines(client, geo):
+    body = analyze(client, ip_address="203.0.113.7").json()
+
+    assert body["ip_scope"] == "reservado"
+    assert body["country_code"] is None and body["asn"] is None
+    assert "País de origem" not in geo[0] and "Organização (ASN)" not in geo[0]
+
+
+def test_analyze_public_ip_not_found_still_saves(client, geo):
+    response = analyze(client, ip_address="1.2.3.4")
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["ip_scope"] == "publico" and body["country_code"] is None
+    assert "País de origem" not in geo[0]
+
+
+def test_analyze_works_without_database_files(client, monkeypatch, tmp_path):
+    from app.services import geoip_service
+
+    monkeypatch.setattr(geoip_service.settings, "GEOIP_COUNTRY_DB", str(tmp_path / "x.mmdb"))
+    monkeypatch.setattr(geoip_service.settings, "GEOIP_ASN_DB", str(tmp_path / "y.mmdb"))
+    monkeypatch.setattr(
+        geoip_service, "country_database", geoip_service.LocalDatabase("p", "GEOIP_COUNTRY_DB")
+    )
+    monkeypatch.setattr(
+        geoip_service, "asn_database", geoip_service.LocalDatabase("a", "GEOIP_ASN_DB")
+    )
+
+    response = analyze(client, ip_address="8.8.8.8")
+
+    assert response.status_code == 201
+    assert response.json()["ip_scope"] == "publico"
+    assert response.json()["country_code"] is None

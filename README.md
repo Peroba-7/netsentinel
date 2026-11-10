@@ -18,6 +18,7 @@ O acesso é feito com login e perfis (leitor, analista, admin), e as permissões
 - [Instalação no Windows](#instalação-no-windows)
 - [Variáveis de ambiente](#variáveis-de-ambiente)
 - [Bloqueio de IPs (simulado)](#bloqueio-de-ips-simulado)
+- [Origem dos IPs (país e ASN)](#origem-dos-ips-país-e-asn)
 - [API](#api)
 - [Classificação de risco pela IA](#classificação-de-risco-pela-ia)
 - [Desenvolvimento e testes](#desenvolvimento-e-testes)
@@ -33,9 +34,11 @@ Decisões de arquitetura e as suas razões: [docs/ARQUITETURA.md](docs/ARQUITETU
 - Classificação de risco por um modelo local (Ollama, `llama3` por omissão) em BAIXO, MÉDIO, ALTO ou CRÍTICO, com parecer técnico e ações recomendadas
 - Critérios objetivos por nível e exemplos no prompt; respostas fora do formato ficam `INDETERMINADO`, em vez de um nível inventado
 - Tipo de ameaça normalizado ao guardar (por exemplo, "SSH Brute Force" e "brute-force" contam como "Brute Force")
+- País e organização (ASN) do IP a partir de uma base local ([DB-IP Lite](#origem-dos-ips-país-e-asn)), sem enviar IPs a terceiros; redes privadas e de documentação ficam como "reservado"
 
 **Histórico e relatório**
 - Métricas, gráficos por tipo e por nível de risco, filtros por risco e por texto
+- Colunas de país e organização do IP no histórico e no CSV
 - Exportação para CSV protegida contra injeção de fórmulas em células de origem externa
 
 **Resposta a incidentes**
@@ -66,6 +69,7 @@ flowchart LR
     api -->|"incidentes, bloqueios,<br/>utilizadores, sessões"| pg[("PostgreSQL")]
     api -->|"limite de pedidos"| redis[("Redis")]
     api -->|"prompt e resposta"| ollama["Ollama<br/>modelo local"]
+    api -->|"país e ASN<br/>(leitura local)"| geo[("DB-IP Lite<br/>data/geoip")]
     api -->|"eventos +<br/>X-NetSentinel-Secret"| n8n["n8n<br/>bloqueio simulado"]
     api -.->|"alertas ALTO/CRÍTICO<br/>(opcional)"| chat["Discord / Telegram"]
 ```
@@ -79,9 +83,10 @@ flowchart LR
 | **PostgreSQL** | Incidentes, bloqueios, utilizadores, sessões e tentativas de login |
 | **Redis** | Limite de análises por minuto. Se estiver em baixo, o limite deixa de ser aplicado e a análise continua |
 | **Ollama** | Executa o modelo de IA na própria máquina; só é acessível pela rede interna do Compose |
+| **DB-IP Lite** | Ficheiros `.mmdb` de país e ASN em `data/geoip/`, montados só de leitura na API. Não é um serviço: a consulta é feita em memória, sem rede |
 | **n8n** | Recebe os eventos da API. O workflow incluído trata o bloqueio e o desbloqueio simulados e confirma a receção dos restantes eventos |
 
-**Fluxo de uma análise:** o dashboard envia o incidente à API com o token da sessão → a API confirma o perfil (analista ou admin) e o limite de pedidos → o LangGraph pede a classificação ao Ollama → a API guarda o incidente no PostgreSQL e responde → em segundo plano, envia o evento ao n8n e, se o risco for ALTO ou CRÍTICO, o alerta ao Discord/Telegram. Uma falha nos alertas não impede a análise.
+**Fluxo de uma análise:** o dashboard envia o incidente à API com o token da sessão → a API confirma o perfil (analista ou admin) e o limite de pedidos → consulta o país e a organização do IP na base local → o LangGraph pede a classificação ao Ollama → a API guarda o incidente no PostgreSQL e responde → em segundo plano, envia o evento ao n8n e, se o risco for ALTO ou CRÍTICO, o alerta ao Discord/Telegram. Uma falha nos alertas não impede a análise.
 
 ```text
 app/
@@ -90,19 +95,20 @@ app/
 ├── core/            Autenticação, perfis, hash de palavras-passe e limite de pedidos
 ├── db/              Ligação à base de dados e modelos
 ├── schemas/         Validação de entradas e respostas
-├── services/        Ollama, notificações, utilizadores e sessões, tarefa periódica
+├── services/        Ollama, origem dos IPs, notificações, utilizadores e sessões, tarefa periódica
 ├── cli.py           Criação de utilizadores pela linha de comandos
 └── main.py          Aplicação FastAPI e /health
 app_pages/           Páginas do dashboard (login, histórico, submissão, utilizadores)
 evals/               Casos de avaliação da classificação de risco
 migrations/          Migrações da base de dados (Alembic)
 n8n/                 Workflow de bloqueio simulado e scripts de instalação
+scripts/             Atualização das bases de IPs (DB-IP Lite)
 tests/               Testes automáticos
 ```
 
 ## Capturas de ecrã
 
-Os dados nas capturas são fictícios e usam IPs de documentação, como `203.0.113.x`.
+Os dados nas capturas são fictícios e usam IPs de documentação, como `203.0.113.x`. As capturas são anteriores às colunas de país e organização.
 
 ![Início de sessão](docs/img/01-login.jpg)
 *Início de sessão*
@@ -215,7 +221,17 @@ powershell -ExecutionPolicy Bypass -File .\n8n\install-workflow.ps1
 
 O `-ExecutionPolicy Bypass` aplica-se só a este comando; é necessário porque o Windows bloqueia scripts por omissão. Se mudar o `N8N_WEBHOOK_SECRET`, corra o script de novo e reinicie a API com `docker compose up -d`.
 
-### 6. Abrir
+### 6. Descarregar as bases de IPs (opcional)
+
+Para os incidentes mostrarem o país e a organização do IP, descarregue as bases DB-IP Lite (cerca de 9 MB comprimidos) para `data/geoip/`:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\update-geoip.ps1
+```
+
+Corra-o de novo uma vez por mês: o DB-IP publica uma versão nova no dia 1. A API recarrega as bases sozinha, sem reiniciar. Sem elas, tudo funciona e os incidentes ficam apenas sem país e organização. Veja [Origem dos IPs](#origem-dos-ips-país-e-asn).
+
+### 7. Abrir
 
 | Serviço | Endereço |
 |---|---|
@@ -234,7 +250,7 @@ curl.exe -k https://localhost:8443/api/health
 
 A resposta indica o estado da base de dados, do Redis e do Ollama. A API e o dashboard já não têm portas próprias no host; as portas publicadas (8443, 8080, 5678, 5432 e 6379) só aceitam ligações desta máquina (`127.0.0.1`).
 
-**Linux e macOS:** os passos são os mesmos, com `cp .env.example .env`, `python -c "import secrets; print(secrets.token_hex(32))"` para gerar segredos e `./n8n/install-workflow.sh` no passo 5.
+**Linux e macOS:** os passos são os mesmos, com `cp .env.example .env`, `python -c "import secrets; print(secrets.token_hex(32))"` para gerar segredos, `./n8n/install-workflow.sh` no passo 5 e `./scripts/update-geoip.sh` no passo 6.
 
 ## Variáveis de ambiente
 
@@ -254,6 +270,7 @@ Todas estão em [.env.example](.env.example). O contentor do dashboard só receb
 | `OLLAMA_MODEL` | Não | Modelo de IA; predefinido `llama3` |
 | `OLLAMA_TIMEOUT_SECONDS` | Não | Tempo máximo de resposta do modelo; predefinido 300 |
 | `BLOCK_EXPIRY_INTERVAL_SECONDS` | Não | Intervalo da tarefa que retira bloqueios vencidos e limpa sessões antigas; predefinido 60, 0 desativa |
+| `GEOIP_COUNTRY_DB`, `GEOIP_ASN_DB` | Não | Bases DB-IP Lite de país e ASN; por omissão, os ficheiros em `data/geoip/`. Vazias, desligam a origem dos IPs |
 | `N8N_WEBHOOK_URL` | Não | Webhook do n8n que recebe os eventos |
 | `N8N_WEBHOOK_SECRET` | Com n8n | Segredo enviado no cabeçalho `X-NetSentinel-Secret`; o webhook recusa pedidos sem ele |
 | `DISCORD_WEBHOOK_URL` | Não | Alertas de risco ALTO e CRÍTICO no Discord |
@@ -283,6 +300,22 @@ Eventos que o webhook recebe:
 Para ver os bloqueios simulados: `docker logs netsentinel-n8n 2>&1 | Select-String NETSENTINEL-BLOCK` (no Linux, `| grep NETSENTINEL-BLOCK`).
 
 **Para usar uma firewall real**, só o nó "Firewall (SIMULADO)" tem de mudar: por exemplo, para um nó SSH que execute `ufw` ou `iptables` no servidor (o n8n corre num contentor, por isso um comando local não afetaria o servidor), seguido de um nó que responda com `status` igual a `bloqueado`. Mantenha o nó "Validar IP", que impede a injeção de comandos, use uma conta SSH só com essas permissões e teste primeiro com um IP inofensivo. Os bloqueios já aceites em simulação não são reenviados: retire-os e peça-os de novo.
+
+## Origem dos IPs (país e ASN)
+
+Ao analisar um incidente, a API consulta o país e a organização (ASN) do IP em duas bases locais do [DB-IP Lite](https://db-ip.com/db/lite.php), antes de chamar a IA. **Nenhum IP sai da máquina:** os ficheiros `.mmdb` ficam em `data/geoip/` (fora do Git e da imagem Docker) e são lidos para memória pela API.
+
+| Caso | Resultado |
+|---|---|
+| IP público encontrado | País (código e nome) e organização guardados no incidente, mostrados no histórico, no resultado da submissão e no CSV, e enviados à IA dentro do bloco `<incidente>` |
+| Rede privada, loopback, link-local, multicast, CGNAT ou de documentação (`192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`, `2001:db8::/32`) | `reservado`, sem consultar a base e sem linhas de origem no prompt |
+| IP público sem registo, base ausente ou inválida | `publico`, sem país nem organização; a análise continua normalmente |
+
+Os incidentes registados antes desta funcionalidade têm só o âmbito (`publico` ou `reservado`), calculado pela migração `0004`: a base de hoje não diz onde o IP estava na altura. A precisão do DB-IP Lite é menor que a das versões pagas e serve de contexto, não de prova.
+
+O nome da organização é escolhido por quem regista o ASN, por isso é tratado como texto de terceiros: fica numa só linha, sem caracteres de controlo, com no máximo 100 caracteres, dentro do bloco `<incidente>`, e o dashboard mostra-o como texto simples. O prompt diz à IA que o país e a organização são só contexto e que, por si sós, não aumentam o nível.
+
+**Atribuição (CC BY 4.0):** [IP Geolocation by DB-IP](https://db-ip.com). Os dados do DB-IP Lite são distribuídos sob a licença [Creative Commons Attribution 4.0 International](https://creativecommons.org/licenses/by/4.0/); a atribuição aparece também no dashboard, junto dos dados.
 
 ## API
 
@@ -341,7 +374,7 @@ curl --cacert caddy-root.crt -X POST https://localhost:8443/api/threats/analyze 
 
 ## Classificação de risco pela IA
 
-O prompt ([app/agents/prompt.py](app/agents/prompt.py)) define critérios por nível (número de tentativas, sucesso depois de falhas, conta privilegiada, origem conhecida), trata o campo "Tipo" como suspeita e não como conclusão, e inclui quatro exemplos curtos, um deles benigno. O texto do incidente vai entre delimitadores `<incidente>`, e o modelo é instruído a não seguir instruções que apareçam lá dentro.
+O prompt ([app/agents/prompt.py](app/agents/prompt.py)) define critérios por nível (número de tentativas, sucesso depois de falhas, conta privilegiada, origem conhecida), trata o campo "Tipo" como suspeita e não como conclusão, e inclui quatro exemplos curtos, um deles benigno. O texto do incidente vai entre delimitadores `<incidente>`, e o modelo é instruído a não seguir instruções que apareçam lá dentro. Para IPs públicos com dados na base local, o bloco inclui também o país e a organização (ASN), que o prompt define como contexto: por si sós, não aumentam o nível.
 
 [evals/incidents.json](evals/incidents.json) tem 10 incidentes com o nível esperado. Os testes usam-nos com o Ollama simulado; para medir o modelo real (sem gravar incidentes nem enviar alertas):
 
@@ -350,7 +383,7 @@ docker cp evals netsentinel-api:/tmp/evals
 docker exec -w /app -e PYTHONPATH=/app netsentinel-api python /tmp/evals/run_live.py /tmp/evals/incidents.json --repeat 3
 ```
 
-Resultado com `llama3`, só com CPU (novembro de 2026): os 10 casos corretos numa passagem; nos três casos reais repetidos três vezes, 8 de 9 corretos (um DDoS saiu CRÍTICO em vez de ALTO). Com o prompt anterior, um login benigno ("errou a senha duas vezes e entrou a partir do escritório") saía MÉDIO nas três repetições; agora sai BAIXO. A amostra é pequena e o modelo pode errar: a classificação apoia a decisão do analista, não a substitui.
+Resultado com `llama3`, só com CPU (novembro de 2026), depois de o prompt passar a tratar o país e a organização como contexto: os 10 casos corretos numa passagem e, nos três casos reais repetidos três vezes, 9 de 9 corretos. Na medição anterior tinham sido 8 de 9 (um DDoS saiu CRÍTICO em vez de ALTO); com amostras tão pequenas, essa diferença não prova uma melhoria. Os casos usam IPs de documentação, por isso medem o efeito da frase nova, mas não o das linhas de país e organização. Com o prompt anterior a esse, um login benigno ("errou a senha duas vezes e entrou a partir do escritório") saía MÉDIO nas três repetições; agora sai BAIXO. A amostra é pequena e o modelo pode errar: a classificação apoia a decisão do analista, não a substitui.
 
 Numa comparação anterior com dois incidentes, o `gemma:2b` respondeu em 6 a 8 s e o `llama3` em 42 a 67 s (CPU, com o modelo carregado), mas só o `llama3` distinguiu os dois incidentes. Para trocar de modelo, altere `OLLAMA_MODEL` e corra `docker compose up -d`.
 
@@ -403,7 +436,8 @@ No PowerShell 5.1, o `>` grava em UTF-16; para um ficheiro UTF-8, use o Git Bash
 - **HTTPS local com o Caddy**, com `Strict-Transport-Security`, `X-Content-Type-Options`, `X-Frame-Options` e `Referrer-Policy`. A API e o dashboard só são acessíveis através do proxy.
 - **Portas só em `127.0.0.1`**; o Ollama só é acessível pela rede interna do Compose.
 - **Webhook do n8n autenticado** com o cabeçalho `X-NetSentinel-Secret`; o IP é validado antes de chegar ao nó da firewall.
-- **Dados não confiáveis tratados como tal:** delimitadores no prompt da IA, fórmulas neutralizadas no CSV exportado e alertas do Discord sem menções.
+- **Dados não confiáveis tratados como tal:** delimitadores no prompt da IA, fórmulas neutralizadas no CSV exportado, alertas do Discord sem menções e nomes de organizações da base de IPs limpos e mostrados como texto simples.
+- **Origem dos IPs sem terceiros:** país e ASN consultados numa base local; nenhum IP de incidente é enviado para fora.
 - **Segredos fora do repositório:** `.env` e cópias de segurança no `.gitignore` e no `.dockerignore`; o `alembic.ini` lê a ligação das configurações.
 
 ### Limitações conhecidas
@@ -415,6 +449,7 @@ No PowerShell 5.1, o `>` grava em UTF-16; para um ficheiro UTF-8, use o Git Bash
 - **Sessão do dashboard por separador.** Recarregar a página (F5) pede login de novo.
 - **Limite de análises por IP.** Todos os utilizadores do dashboard partilham o mesmo IP de origem, e por isso o mesmo limite. Se o Redis falhar, o limite deixa de ser aplicado.
 - **Sem registo de auditoria** de quem pediu cada bloqueio ou alterou cada utilizador.
+- **Origem dos IPs aproximada e atualizada à mão.** O DB-IP Lite é menos preciso que as versões pagas, e o script de atualização tem de ser corrido todos os meses.
 - **Manipulação da IA.** As instruções e os delimitadores reduzem o risco de um incidente manipular o modelo, mas não o eliminam. O bloqueio é sempre uma decisão humana: a classificação nunca bloqueia um IP sozinha.
 - **Uma tarefa por processo.** A tarefa periódica corre dentro da API; com vários workers do `uvicorn`, cada um teria a sua.
 
@@ -432,3 +467,5 @@ Antes de usar fora desta máquina: troque o certificado interno por um de uma CA
 ## Licença
 
 Distribuído sob a licença MIT. Consulte o ficheiro [LICENSE](LICENSE).
+
+As bases de IPs não fazem parte do repositório. Quando descarregadas, são dados do DB-IP Lite sob a licença CC BY 4.0: [IP Geolocation by DB-IP](https://db-ip.com).

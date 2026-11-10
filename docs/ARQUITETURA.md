@@ -14,6 +14,7 @@ flowchart LR
     api --> pg[("PostgreSQL")]
     api --> redis[("Redis")]
     api --> ollama["Ollama"]
+    api --> geo[("DB-IP Lite<br/>.mmdb local")]
     api -->|"X-NetSentinel-Secret"| n8n["n8n"]
 ```
 
@@ -87,6 +88,7 @@ A `API_KEY` continua a existir para scripts e integrações, com acesso de admin
 | `0001` | Tabelas iniciais `threat_records` e `blocked_ips` |
 | `0002` | Coluna opcional `expires_at` em `blocked_ips` |
 | `0003` | Tabelas `users`, `user_sessions` e `login_attempts` |
+| `0004` | Colunas de origem do IP em `threat_records` (`country_code`, `country_name`, `asn`, `as_org`, `ip_scope`) e preenchimento do `ip_scope` dos incidentes existentes |
 
 Pormenores importantes:
 
@@ -195,6 +197,42 @@ Get-ChildItem Cert:\CurrentUser\Root | Where-Object Subject -like "*Caddy Local 
 ```
 
 Se o volume `caddy_data` for apagado, o Caddy cria uma CA nova e é preciso repetir os dois passos.
+
+---
+
+## 5. Origem dos IPs com uma base local (DB-IP Lite)
+
+**Problema.** Um incidente só tinha o IP. Saber o país e a organização (ASN) de origem ajuda o analista a decidir, mas os serviços online de geolocalização recebem cada IP consultado, e os IPs dos incidentes são dados sensíveis da organização.
+
+**Decisão.** Consultar bases `.mmdb` locais do **DB-IP Lite** (país e ASN), lidas com a biblioteca `maxminddb`, em [app/services/geoip_service.py](../app/services/geoip_service.py).
+
+- **Onde entra:** em `POST /threats/analyze`, depois da validação e **antes da IA**. O resultado é guardado no incidente e enviado ao modelo.
+- **Âmbito antes da consulta:** redes privadas, loopback, link-local, multicast, CGNAT e as redes de documentação (`192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`, `2001:db8::/32`) ficam `reservado` **sem consultar a base**. Um IPv4 dentro de IPv6 (`::ffff:…`) é tratado como IPv4.
+- **Falhas não param a análise:** sem ficheiro, com um ficheiro corrompido ou sem registo do IP, o incidente fica `publico` sem país nem organização, com um aviso no log (uma vez por causa).
+- **Ficheiros fora do Git e da imagem:** `data/geoip/` está no `.gitignore` e no `.dockerignore` e é montada só de leitura no contentor da API (o dashboard não a recebe). O script [scripts/update-geoip.ps1](../scripts/update-geoip.ps1) descarrega a versão do mês, confirma que é um `.mmdb` e substitui o ficheiro antigo. A API lê cada base para memória (cerca de 10 MB) e volta a lê-la quando o ficheiro muda, sem reiniciar e sem prender o ficheiro.
+- **Colunas novas** (migração `0004`): `country_code`, `country_name` (nome em `pt-BR` da base, ou em inglês), `asn` (`BIGINT`, porque os ASN de 32 bits passam o máximo de um `INTEGER`), `as_org` e `ip_scope`. Os incidentes antigos recebem só o `ip_scope`, que depende apenas do endereço; o país de hoje não diz onde o IP estava na altura.
+
+**Proteção contra injeção de prompt.** O nome da organização é escolhido por quem regista o ASN, por isso é tratado como dado de terceiros:
+
+1. `country_code` só é aceite se tiver exatamente duas letras; `asn` só se for um inteiro entre 1 e 2³²−1.
+2. `country_name` e `as_org` são normalizados (NFKC), perdem quebras de linha e caracteres de controlo e de formatação (incluindo os de inversão de direção do texto) e são cortados a 100 caracteres. Um nome não consegue criar uma linha falsa como `Descrição: …`.
+3. As linhas de origem vão **dentro** do bloco `<incidente>`, que o prompt já define como dados não confiáveis, e passam pela mesma neutralização de `<incidente>`/`</incidente>` que a descrição.
+4. O prompt de sistema diz que o país e a organização são só contexto e que, por si sós, não aumentam o nível.
+5. IPs reservados não recebem linhas de origem. Os exemplos do prompt e os casos de avaliação usam IPs de documentação para representar atacantes externos; escrever "reservado" sugeriria uma rede interna.
+6. No dashboard, a origem é mostrada com `st.text` (sem Markdown) e passa no CSV pela mesma neutralização de fórmulas.
+
+**Alternativas consideradas.**
+
+| Opção | Vantagens | Desvantagens |
+|---|---|---|
+| **DB-IP Lite** (escolhida) | Descarga direta sem conta nem chave; licença CC BY 4.0; mesmo formato `.mmdb` | Atualização mensal; precisão menor que a das versões pagas |
+| MaxMind GeoLite2 | Atualizada duas vezes por semana; muito usada | Exige conta e chave de licença (mais um segredo no `.env`); EULA própria, que obriga a atualizar e a apagar versões antigas |
+| Serviço online (ipinfo, ip-api…) | Sem ficheiros para gerir | Cada IP de incidente seria enviado a terceiros |
+| Biblioteca `geoip2` em vez de `maxminddb` | Modelos tipados | Traz clientes HTTP para o serviço web da MaxMind, que não são usados; `maxminddb` lê qualquer `.mmdb` |
+
+**Limitações.** Os dados são aproximados e servem de contexto, não de prova. A atualização é manual (uma vez por mês). Os alertas do Discord e do Telegram não incluem a origem; o evento enviado ao n8n inclui-a.
+
+**Atribuição exigida (CC BY 4.0).** [IP Geolocation by DB-IP](https://db-ip.com). Os dados do DB-IP Lite são distribuídos sob a licença [Creative Commons Attribution 4.0 International](https://creativecommons.org/licenses/by/4.0/). A atribuição aparece no README, no histórico e no resultado da submissão do dashboard, sempre que há dados de origem.
 
 ---
 

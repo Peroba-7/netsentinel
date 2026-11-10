@@ -1,11 +1,12 @@
 import json
 import unicodedata
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 from langgraph.graph import END, StateGraph
 
 from app.agents.prompt import build_messages
 from app.schemas.threat import RISK_LEVELS
+from app.services.geoip_service import IpOrigin
 from app.services.ollama_service import generate_analysis
 
 UNKNOWN_RISK = "INDETERMINADO"
@@ -17,6 +18,8 @@ class ThreatState(TypedDict):
     description: str
     risk_level: str
     ai_analysis: str
+    # Origem do IP na base local; ausente nas avaliações e em quem chama o fluxo sem ela.
+    origin: NotRequired[IpOrigin | None]
 
 
 def _strip_accents(text: str) -> str:
@@ -48,7 +51,9 @@ def parse_analysis(raw: str) -> tuple[str, str]:
 
 
 def analyze_node(state: ThreatState) -> ThreatState:
-    messages = build_messages(state["ip_address"], state["threat_type"], state["description"])
+    messages = build_messages(
+        state["ip_address"], state["threat_type"], state["description"], state.get("origin")
+    )
     risk_level, analysis = parse_analysis(generate_analysis(messages))
     return {**state, "risk_level": risk_level, "ai_analysis": analysis}
 

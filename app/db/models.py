@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 
+from sqlalchemy import BigInteger
 from sqlmodel import Field, SQLModel
 
 
@@ -17,6 +18,14 @@ class ThreatModel(SQLModel, table=True):
     risk_level: str
     ai_analysis: str | None = None
     timestamp: datetime = Field(default_factory=utcnow)
+    # Origem do IP na base local (DB-IP Lite), no momento da análise. Vazia se não houver dados.
+    country_code: str | None = Field(default=None, max_length=2)
+    country_name: str | None = Field(default=None, max_length=100)
+    # BigInteger: os ASN de 32 bits passam o máximo de um INTEGER do PostgreSQL.
+    asn: int | None = Field(default=None, sa_type=BigInteger)
+    as_org: str | None = Field(default=None, max_length=255)
+    # "publico" ou "reservado" (rede privada, loopback, documentação...).
+    ip_scope: str | None = Field(default=None, max_length=16)
 
 
 class BlockedIPModel(SQLModel, table=True):

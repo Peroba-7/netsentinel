@@ -72,6 +72,9 @@ services:
       UVICORN_ROOT_PATH: /api
       # Aceita o X-Forwarded-For do Caddy (a porta 8000 só existe na rede interna do Compose).
       FORWARDED_ALLOW_IPS: "*"
+    volumes:
+      # Bases DB-IP Lite (scripts/update-geoip.ps1); fora do Git e da imagem, só de leitura.
+      - ./data/geoip:/app/data/geoip:ro
     depends_on:
       postgres:
         condition: service_healthy

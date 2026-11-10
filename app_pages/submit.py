@@ -5,6 +5,7 @@ import streamlit as st
 
 from app.schemas.threat import THREAT_TYPES
 from dashboard_api import ApiError, analyze_threat, require_role, show_api_error
+from dashboard_format import DBIP_ATTRIBUTION, has_origin_data, origin_label
 
 logger = logging.getLogger("netsentinel.dashboard")
 
@@ -69,6 +70,12 @@ if submitted:
         with st.container(horizontal=True):
             st.metric("Nível de risco", result["risk_level"], border=True)
             st.metric("Estado", result["status"], border=True)
+        origin = origin_label(result)
+        if origin:
+            # st.text e não markdown: o nome da organização é texto de terceiros.
+            st.text(f"Origem do IP: {origin}")
+            if has_origin_data([result]):
+                st.caption(DBIP_ATTRIBUTION)
         with st.container(border=True):
             st.markdown("**Parecer técnico da IA**")
             st.write(result["ai_analysis"] or "Sem análise detalhada disponível.")

@@ -549,3 +549,84 @@ def test_admin_sees_and_creates_users(api):
         "password": "palavra-passe-forte",
         "role": "leitor",
     }
+
+
+# --- Origem do IP ---------------------------------------------------------------------------
+
+PUBLIC_THREAT = {
+    **THREAT,
+    "id": 2,
+    "ip_address": "8.8.8.8",
+    "ip_scope": "publico",
+    "country_code": "US",
+    "country_name": "Estados Unidos",
+    "asn": 15169,
+    "as_org": "=HYPERLINK(\"http://x\")",
+}
+RESERVED_THREAT = {**THREAT, "ip_scope": "reservado"}
+
+
+def test_history_shows_country_and_organization_with_attribution(api):
+    api["routes"][("GET", "/threats/")] = FakeResponse([PUBLIC_THREAT, RESERVED_THREAT])
+
+    page = open_page("history.py")
+
+    assert not page.exception
+    table = page.dataframe[0].value
+    columns = list(table.columns)
+    assert columns[columns.index("ip_address") + 1 : columns.index("ip_address") + 3] == [
+        "País",
+        "Organização",
+    ]
+    assert list(table["País"]) == ["US · Estados Unidos", "Rede reservada"]
+    assert list(table["Organização"]) == ['AS15169 · =HYPERLINK("http://x")', ""]
+    assert not {"country_code", "asn", "as_org", "ip_scope"} & set(columns)
+    assert any("IP Geolocation by DB-IP" in caption.value for caption in page.caption)
+
+
+def test_history_without_origin_data_has_empty_columns_and_no_attribution(api):
+    page = open_page("history.py")  # THREAT antigo, sem campos de origem
+
+    table = page.dataframe[0].value
+    assert list(table["País"]) == [""] and list(table["Organização"]) == [""]
+    assert not any("DB-IP" in caption.value for caption in page.caption)
+
+
+def test_csv_includes_origin_and_neutralizes_organization_formula():
+    source = (PAGES / "history.py").read_text(encoding="utf-8")
+    start = source.index("def to_safe_csv")
+    namespace = {"pd": pd}
+    exec(source[start : source.index("user = require_role")], namespace)  # noqa: S102
+    frame = pd.DataFrame({"País": ["US · Estados Unidos"], "Organização": ["=HYPERLINK(1)"]})
+
+    csv = namespace["to_safe_csv"](frame).decode("utf-8-sig")
+
+    assert csv.splitlines()[0] == "País,Organização"
+    assert "'=HYPERLINK(1)" in csv
+
+
+def test_submit_shows_origin_as_plain_text_with_attribution(api):
+    api["routes"][("POST", "/threats/analyze")] = FakeResponse(
+        {**PUBLIC_THREAT, "as_org": "**Org** [link](http://x)"}, 201
+    )
+    page = open_page("submit.py")
+    page.text_input[0].set_value("8.8.8.8")
+    page.text_area[0].set_value("Tráfego anormal.")
+    page.button[0].click().run()
+
+    assert not page.exception
+    assert page.text[0].value == (
+        "Origem do IP: US · Estados Unidos — AS15169 · **Org** [link](http://x)"
+    )
+    assert any("IP Geolocation by DB-IP" in caption.value for caption in page.caption)
+
+
+def test_submit_reserved_ip_shows_reserved_without_attribution(api):
+    api["routes"][("POST", "/threats/analyze")] = FakeResponse(RESERVED_THREAT, 201)
+    page = open_page("submit.py")
+    page.text_input[0].set_value("10.0.0.1")
+    page.text_area[0].set_value("Tráfego anormal.")
+    page.button[0].click().run()
+
+    assert page.text[0].value == "Origem do IP: Rede reservada"
+    assert not any("DB-IP" in caption.value for caption in page.caption)

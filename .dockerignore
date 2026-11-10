@@ -8,3 +8,4 @@
 *.db
 tests
 backup*.sql
+data/geoip

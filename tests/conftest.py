@@ -10,6 +10,9 @@ os.environ.update(
     TELEGRAM_CHAT_ID="",
     # A tarefa de expiração é testada diretamente; não deve correr com o TestClient.
     BLOCK_EXPIRY_INTERVAL_SECONDS="0",
+    # Os testes nunca leem as bases reais de data/geoip; usam bases simuladas.
+    GEOIP_COUNTRY_DB="",
+    GEOIP_ASN_DB="",
 )
 
 import pytest  # noqa: E402

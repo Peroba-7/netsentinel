@@ -13,6 +13,9 @@ from dashboard_api import (
     show_api_error,
     unblock_ip,
 )
+from dashboard_format import DBIP_ATTRIBUTION, country_label, has_origin_data, organization_label
+
+ORIGIN_FIELDS = ["ip_scope", "country_code", "country_name", "asn", "as_org"]
 
 
 def to_safe_csv(frame: pd.DataFrame) -> bytes:
@@ -76,6 +79,11 @@ df.insert(
     [ip_block_label(threat) for threat in threats],
 )
 df = df.drop(columns=["ip_blocked", "ip_block_result"])
+# Origem do IP ao lado do endereço, em duas colunas legíveis em vez dos cinco campos da API.
+position = df.columns.get_loc("ip_address") + 1
+df.insert(position, "País", [country_label(threat) for threat in threats])
+df.insert(position + 1, "Organização", [organization_label(threat) for threat in threats])
+df = df.drop(columns=ORIGIN_FIELDS, errors="ignore")
 
 
 def count_chart(counts: pd.Series, x_label: str, order: list[str] | None = None) -> alt.Chart:
@@ -141,6 +149,8 @@ if view.empty:
     st.info("Nenhum incidente corresponde aos filtros.")
 else:
     st.dataframe(view, hide_index=True, alt="Lista de incidentes registados")
+if has_origin_data(threats):
+    st.caption(DBIP_ATTRIBUTION)
 st.download_button(
     "Descarregar relatório (CSV)",
     data=to_safe_csv(view),

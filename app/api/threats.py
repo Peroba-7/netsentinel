@@ -20,6 +20,7 @@ from app.schemas.threat import (
     ThreatResponse,
     UnblockResponse,
 )
+from app.services.geoip_service import lookup as lookup_ip_origin
 from app.services.notification_service import dispatch_block, dispatch_unblock, notify_threat
 from app.services.ollama_service import LLMUnavailableError
 
@@ -64,6 +65,8 @@ def analyze_threat(
     db: Session = Depends(get_db),
 ):
     ip_address = str(threat.ip_address)
+    # Consulta local, antes da IA; sem base ou sem registo, o incidente segue sem origem.
+    origin = lookup_ip_origin(ip_address)
     try:
         result = threat_graph.invoke(
             {
@@ -72,6 +75,7 @@ def analyze_threat(
                 "description": threat.description,
                 "risk_level": "INDETERMINADO",
                 "ai_analysis": "",
+                "origin": origin,
             }
         )
     except LLMUnavailableError as exc:
@@ -87,6 +91,7 @@ def analyze_threat(
         description=threat.description,
         risk_level=result["risk_level"],
         ai_analysis=result["ai_analysis"],
+        **origin.as_fields(),
     )
     db.add(record)
     db.commit()
