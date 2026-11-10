@@ -29,6 +29,17 @@ COLUMN_LABELS = {
 }
 
 
+# Colunas da tabela "Bloqueios ativos", por ordem, com os rótulos mostrados.
+BLOCK_COLUMN_LABELS = {
+    "ip_address": "IP",
+    "reason": "Motivo",
+    "created_at": "Criado em",
+    "expires_at": "Expira em",
+    "dispatched": "Enviado",
+    "result": "Resultado",
+}
+
+
 def for_display(frame: pd.DataFrame) -> pd.DataFrame:
     return frame.rename(columns=COLUMN_LABELS)
 
@@ -235,10 +246,10 @@ else:
 if blocked:
     st.subheader("Bloqueios ativos", anchor=False)
     blocked_view = pd.DataFrame(blocked)
-    blocked_view["expira em"] = blocked_view["expires_at"].map(format_expiry)
+    blocked_view["expires_at"] = blocked_view["expires_at"].map(format_expiry)
     blocked_view["reason"] = blocked_view["reason"].map(reason_label)
     st.dataframe(
-        blocked_view[["ip_address", "reason", "created_at", "expira em", "dispatched", "result"]],
+        blocked_view[list(BLOCK_COLUMN_LABELS)].rename(columns=BLOCK_COLUMN_LABELS),
         hide_index=True,
         alt="Lista de IPs com pedido de bloqueio",
     )

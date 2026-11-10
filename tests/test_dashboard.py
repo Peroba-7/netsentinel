@@ -269,7 +269,35 @@ def test_history_shows_block_expiry(api):
     page = open_page("history.py")
 
     table = page.dataframe[-1].value
-    assert list(table["expira em"]) == ["08/11/2026 12:30 UTC", "Permanente"]
+    assert list(table["Expira em"]) == ["08/11/2026 12:30 UTC", "Permanente"]
+
+
+def test_active_blocks_headers_are_in_portuguese(api):
+    api["routes"][("GET", "/threats/blocked")] = FakeResponse(
+        [
+            {
+                "ip_address": "10.0.0.1",
+                "reason": "DDoS, risco ALTO",
+                "created_at": "2026-11-08T12:00:00Z",
+                "expires_at": None,
+                "dispatched": True,
+                "result": "bloqueado (simulado)",
+            }
+        ]
+    )
+
+    page = open_page("history.py")
+
+    table = page.dataframe[-1].value
+    assert list(table.columns) == [
+        "IP",
+        "Motivo",
+        "Criado em",
+        "Expira em",
+        "Enviado",
+        "Resultado",
+    ]
+    assert list(table["Resultado"]) == ["bloqueado (simulado)"]
 
 
 def test_history_shows_dash_when_block_has_no_reason(api):
@@ -289,7 +317,7 @@ def test_history_shows_dash_when_block_has_no_reason(api):
 
     page = open_page("history.py")
 
-    assert list(page.dataframe[-1].value["reason"]) == ["—", "—", "DDoS, risco ALTO"]
+    assert list(page.dataframe[-1].value["Motivo"]) == ["—", "—", "DDoS, risco ALTO"]
 
 
 def test_history_table_headers_are_in_portuguese(api):
