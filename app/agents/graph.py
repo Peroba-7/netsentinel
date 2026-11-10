@@ -5,6 +5,7 @@ from typing import NotRequired, TypedDict
 from langgraph.graph import END, StateGraph
 
 from app.agents.prompt import build_messages
+from app.agents.text_fixes import fix_ip_gender
 from app.schemas.threat import RISK_LEVELS
 from app.services.geoip_service import IpOrigin
 from app.services.ollama_service import generate_analysis
@@ -55,7 +56,8 @@ def analyze_node(state: ThreatState) -> ThreatState:
         state["ip_address"], state["threat_type"], state["description"], state.get("origin")
     )
     risk_level, analysis = parse_analysis(generate_analysis(messages))
-    return {**state, "risk_level": risk_level, "ai_analysis": analysis}
+    # O prompt pede "o IP", mas o modelo nem sempre cumpre: corrige-se antes de guardar.
+    return {**state, "risk_level": risk_level, "ai_analysis": fix_ip_gender(analysis)}
 
 
 def build_graph():
