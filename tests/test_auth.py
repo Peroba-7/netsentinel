@@ -309,29 +309,31 @@ def test_cli_creates_admin_with_password_from_prompt(engine, capsys):
     )
 
     assert code == 0
-    assert "criado" in capsys.readouterr().out
+    assert "Usuário admin criado com o perfil admin." in capsys.readouterr().out
     with Session(engine) as db:
         user = auth_service.get_user_by_name(db, "admin")
         assert user.role == "admin"
         assert auth_service.authenticate(db, "admin", PASSWORD) is not None
 
 
-def test_cli_rejects_mismatched_or_short_passwords(engine):
+def test_cli_rejects_mismatched_or_short_passwords(engine, capsys):
     assert (
         cli(
             ["create-user", "ana", "--role", "admin"], engine=engine, ask=answers(PASSWORD, "outra")
         )
         == 1
     )
+    assert "As senhas não coincidem." in capsys.readouterr().err
     assert (
         cli(["create-user", "ana", "--role", "admin"], engine=engine, ask=answers("curta", "curta"))
         == 1
     )
+    assert "A senha deve ter pelo menos" in capsys.readouterr().err
     with Session(engine) as db:
         assert auth_service.get_user_by_name(db, "ana") is None
 
 
-def test_cli_set_password_replaces_it(engine):
+def test_cli_set_password_replaces_it(engine, capsys):
     make_user(engine, "ana", "admin")
 
     code = cli(
@@ -341,5 +343,6 @@ def test_cli_set_password_replaces_it(engine):
     )
 
     assert code == 0
+    assert "Senha de ana alterada; as sessões foram encerradas." in capsys.readouterr().out
     with Session(engine) as db:
         assert auth_service.authenticate(db, "ana", "nova-palavra-passe") is not None
