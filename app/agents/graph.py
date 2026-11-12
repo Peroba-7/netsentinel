@@ -1,14 +1,18 @@
 import json
+import logging
 import unicodedata
 from typing import NotRequired, TypedDict
 
 from langgraph.graph import END, StateGraph
 
 from app.agents.prompt import build_messages
+from app.agents.risk_floor import apply_risk_floor, floor_note
 from app.agents.text_fixes import fix_ip_gender
 from app.schemas.threat import RISK_LEVELS
 from app.services.geoip_service import IpOrigin
 from app.services.ollama_service import generate_analysis
+
+logger = logging.getLogger(__name__)
 
 UNKNOWN_RISK = "INDETERMINADO"
 
@@ -21,6 +25,8 @@ class ThreatState(TypedDict):
     ai_analysis: str
     # Origem do IP na base local; ausente nas avaliações e em quem chama o fluxo sem ela.
     origin: NotRequired[IpOrigin | None]
+    # Nível dado pelo modelo, antes das regras de nível mínimo.
+    model_risk_level: NotRequired[str]
 
 
 def _strip_accents(text: str) -> str:
@@ -56,15 +62,37 @@ def analyze_node(state: ThreatState) -> ThreatState:
         state["ip_address"], state["threat_type"], state["description"], state.get("origin")
     )
     risk_level, analysis = parse_analysis(generate_analysis(messages))
-    # O prompt pede "o IP", mas o modelo nem sempre cumpre: corrige-se antes de guardar.
-    return {**state, "risk_level": risk_level, "ai_analysis": fix_ip_gender(analysis)}
+    return {**state, "risk_level": risk_level, "ai_analysis": analysis}
+
+
+def guard_node(state: ThreatState) -> ThreatState:
+    """Regras fixas depois do modelo: nível mínimo por sinais objetivos e correção do texto."""
+    result = apply_risk_floor(state["description"], state["risk_level"])
+    analysis = state["ai_analysis"]
+    if result.adjusted:
+        logger.warning(
+            "Nível de risco ajustado de %s para %s pelas regras: %s",
+            result.model_risk_level,
+            result.risk_level,
+            ", ".join(signal.rule for signal in result.signals),
+        )
+        analysis = f"{analysis}\n\n{floor_note(result)}".strip()
+    return {
+        **state,
+        "risk_level": result.risk_level,
+        "model_risk_level": result.model_risk_level,
+        # O prompt pede "o IP", mas o modelo nem sempre cumpre: corrige-se antes de guardar.
+        "ai_analysis": fix_ip_gender(analysis),
+    }
 
 
 def build_graph():
     workflow = StateGraph(ThreatState)
     workflow.add_node("analyzer", analyze_node)
+    workflow.add_node("guard", guard_node)
     workflow.set_entry_point("analyzer")
-    workflow.add_edge("analyzer", END)
+    workflow.add_edge("analyzer", "guard")
+    workflow.add_edge("guard", END)
     return workflow.compile()
 
 

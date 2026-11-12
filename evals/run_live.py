@@ -47,9 +47,12 @@ def main() -> int:
             ok = result["risk_level"] == case["expected"]
             hits += ok
             total += 1
+            # Distingue o acerto do modelo do acerto do sistema (modelo + regras de nível mínimo).
+            model = result.get("model_risk_level", result["risk_level"])
+            source = "ajustado pelas regras" if model != result["risk_level"] else "sem ajuste"
             print(
                 f"{'OK ' if ok else 'ERRO'} {case['id']} (#{run}): esperado {case['expected']}, "
-                f"saiu {result['risk_level']} em {elapsed:.0f}s"
+                f"saiu {result['risk_level']} (modelo: {model}, {source}) em {elapsed:.0f}s"
             )
             print(f"     parecer: {result['ai_analysis'][:300]}")
             sys.stdout.flush()
