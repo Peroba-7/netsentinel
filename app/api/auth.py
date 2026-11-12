@@ -9,8 +9,8 @@ from app.services.auth_service import LoginLockedError, authenticate, create_ses
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
 # A mesma mensagem para utilizador inexistente, desativado ou palavra-passe errada.
-INVALID_LOGIN = "Utilizador ou palavra-passe inválidos."
-LOCKED_LOGIN = "Demasiadas tentativas falhadas. Tente novamente mais tarde."
+INVALID_LOGIN = "Usuário ou senha inválidos."
+LOCKED_LOGIN = "Muitas tentativas malsucedidas. Tente novamente mais tarde."
 
 
 @router.post("/login", response_model=LoginResponse)

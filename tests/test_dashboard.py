@@ -529,7 +529,7 @@ def test_login_opens_the_history(api):
 
 def test_failed_login_shows_api_message_and_keeps_user_out(api):
     api["routes"][("POST", "/auth/login")] = FakeResponse(
-        {"detail": "Utilizador ou palavra-passe inválidos."}, 401
+        {"detail": "Usuário ou senha inválidos."}, 401
     )
     app = open_dashboard()
 

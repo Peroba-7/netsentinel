@@ -40,6 +40,6 @@ def enforce_rate_limit(request: Request) -> None:
     if count > limit:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Demasiados pedidos. Tente novamente dentro de um minuto.",
+            detail="Muitas requisições. Tente novamente em um minuto.",
             headers={"Retry-After": "60"},
         )

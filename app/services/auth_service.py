@@ -1,4 +1,4 @@
-"""Utilizadores, login, sessões e limite de tentativas."""
+"""Usuários, login, sessões e limite de tentativas."""
 
 import hashlib
 import re
@@ -15,11 +15,11 @@ from app.schemas.user import MIN_PASSWORD_LENGTH, ROLES, USERNAME_PATTERN
 
 
 class LoginLockedError(Exception):
-    """Demasiadas tentativas falhadas para este nome de utilizador."""
+    """Muitas tentativas malsucedidas para este nome de usuário."""
 
 
 class UserError(ValueError):
-    """Pedido inválido sobre utilizadores; a mensagem pode ser mostrada a quem o fez."""
+    """Pedido inválido sobre usuários; a mensagem pode ser mostrada a quem o fez."""
 
 
 @dataclass
@@ -144,18 +144,18 @@ def cleanup(db: Session, now: datetime | None = None) -> None:
 
 def _check_password(password: str) -> None:
     if len(password) < MIN_PASSWORD_LENGTH:
-        raise UserError(f"A palavra-passe deve ter pelo menos {MIN_PASSWORD_LENGTH} caracteres.")
+        raise UserError(f"A senha deve ter pelo menos {MIN_PASSWORD_LENGTH} caracteres.")
 
 
 def create_user(db: Session, username: str, password: str, role: str) -> UserModel:
     key = normalize_username(username)
     if not re.fullmatch(USERNAME_PATTERN, key):
-        raise UserError("Utilizador inválido: use 3 a 50 letras, números, '.', '_' ou '-'.")
+        raise UserError("Usuário inválido: use 3 a 50 letras, números, '.', '_' ou '-'.")
     if role not in ROLES:
         raise UserError(f"Perfil inválido: use {', '.join(ROLES)}.")
     _check_password(password)
     if db.exec(select(UserModel).where(UserModel.username == key)).first():
-        raise UserError("Já existe um utilizador com esse nome.")
+        raise UserError("Já existe um usuário com esse nome.")
 
     user = UserModel(username=key, password_hash=hash_password(password), role=role)
     db.add(user)

@@ -210,7 +210,7 @@ def unblock_ip(ip_address: IPvAnyAddress, db: Session = Depends(get_db)):
         if result is None:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="O n8n não aceitou o desbloqueio. O bloqueio mantém-se registado.",
+                detail="O n8n não aceitou o desbloqueio. O bloqueio continua registrado.",
             )
 
     db.delete(record)

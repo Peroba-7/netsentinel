@@ -28,7 +28,7 @@ def change_user(user_id: int, request: UserUpdate, db: Session = Depends(get_db)
     user = db.get(UserModel, user_id)
     if user is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Utilizador não encontrado."
+            status_code=status.HTTP_404_NOT_FOUND, detail="Usuário não encontrado."
         )
     try:
         return update_user(

@@ -26,7 +26,7 @@ SERVICE_ACCOUNT = "chave-de-servico"
 
 @dataclass(frozen=True)
 class Principal:
-    """Quem fez o pedido: um utilizador com sessão, ou a chave de serviço (acesso total)."""
+    """Quem fez o pedido: um usuário com sessão, ou a chave de serviço (acesso total)."""
 
     username: str
     role: str
@@ -37,7 +37,7 @@ class Principal:
 def _unauthorized() -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Sessão inválida ou expirada. Inicie sessão novamente.",
+        detail="Sessão inválida ou expirada. Faça login novamente.",
         headers={"WWW-Authenticate": "Bearer"},
     )
 
@@ -74,7 +74,7 @@ def require_role(minimum: str) -> Callable[..., Principal]:
         if not role_at_least(principal.role, minimum):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="O seu perfil não tem permissão para esta ação.",
+                detail="Seu perfil não tem permissão para esta ação.",
             )
         return principal
 
