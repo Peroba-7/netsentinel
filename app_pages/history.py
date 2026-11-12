@@ -213,8 +213,14 @@ st.subheader("Resposta a incidentes", anchor=False)
 
 pending = [entry["ip_address"] for entry in blocked if not entry["dispatched"]]
 if pending:
+    # Concordância com o número de IPs da lista.
+    status_text = (
+        "Pedidos registrados, mas não enviados"
+        if len(pending) > 1
+        else "Pedido registrado, mas não enviado"
+    )
     st.warning(
-        f"Registrado, mas não enviado ao n8n: {', '.join(pending)}. "
+        f"{status_text} ao n8n: {', '.join(pending)}. "
         "O firewall não foi alterado; selecione o IP para tentar de novo.",
         title="Bloqueios pendentes",
     )

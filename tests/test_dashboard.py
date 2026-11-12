@@ -202,7 +202,24 @@ def test_history_warns_about_undispatched_block(api):
     page = open_page("history.py")
 
     assert "10.0.0.1" in page.warning[0].value
+    assert page.warning[0].value.startswith("Pedido registrado, mas não enviado ao n8n")
     assert page.selectbox[0].options == ["10.0.0.1"]
+
+
+def test_history_undispatched_warning_agrees_with_plural(api):
+    pending = {"reason": None, "expires_at": None, "created_at": "x", "dispatched": False}
+    api["routes"][("GET", "/threats/blocked")] = FakeResponse(
+        [
+            {**pending, "ip_address": "10.0.0.1", "result": None},
+            {**pending, "ip_address": "10.0.0.2", "result": None},
+        ]
+    )
+
+    page = open_page("history.py")
+
+    assert page.warning[0].value.startswith(
+        "Pedidos registrados, mas não enviados ao n8n: 10.0.0.1, 10.0.0.2."
+    )
 
 
 def test_history_flags_simulated_blocks(api):
@@ -616,6 +633,24 @@ def test_expired_session_reported_by_api_returns_to_login(api):
     assert "Faça login" in page.info[0].value
 
 
+def test_users_table_formats_creation_date_in_utc(api):
+    api["routes"][("GET", "/users/")] = FakeResponse(
+        [
+            {
+                "id": 1,
+                "username": "admin1",
+                "role": "admin",
+                "is_active": True,
+                "created_at": "2026-11-09T02:48:45.421554+01:00",
+            }
+        ]
+    )
+
+    page = open_page("users.py", role="admin")
+
+    assert list(page.dataframe[0].value["Criado em"]) == ["09/11/2026 01:48 UTC"]
+
+
 def test_admin_sees_and_creates_users(api):
     api["routes"][("GET", "/users/")] = FakeResponse(
         [{"id": 1, "username": "admin1", "role": "admin", "is_active": True, "created_at": "x"}]
@@ -625,7 +660,10 @@ def test_admin_sees_and_creates_users(api):
     )
     page = open_page("users.py", role="admin")
     assert not page.exception
-    assert list(page.dataframe[0].value["username"]) == ["admin1"]
+    table = page.dataframe[0].value
+    assert list(table.columns) == ["Usuário", "Perfil", "Ativo", "Criado em"]
+    assert list(table["Usuário"]) == ["admin1"]
+    assert list(table["Criado em"]) == ["x"]  # um valor que não é data aparece como veio
 
     page.text_input[0].set_value("Joao")
     page.text_input[1].set_value("palavra-passe-forte")

@@ -11,6 +11,21 @@ from dashboard_api import (
     update_user,
 )
 
+# Colunas da tabela de usuários, por ordem, com os rótulos mostrados (os campos da API não mudam).
+USER_COLUMN_LABELS = {
+    "username": "Usuário",
+    "role": "Perfil",
+    "is_active": "Ativo",
+    "created_at": "Criado em",
+}
+
+
+def format_created(value) -> str:
+    """Data no formato "dd/mm/aaaa HH:MM UTC"; intacta se não for uma data."""
+    timestamp = pd.to_datetime(value, utc=True, errors="coerce")
+    return str(value) if pd.isna(timestamp) else timestamp.strftime("%d/%m/%Y %H:%M UTC")
+
+
 me = require_role("admin")
 
 st.subheader("Usuários", anchor=False)
@@ -25,8 +40,10 @@ except ApiError as exc:
     show_api_error(exc, "Não foi possível carregar os usuários")
 
 if users:
+    users_view = pd.DataFrame(users)[list(USER_COLUMN_LABELS)]
+    users_view["created_at"] = users_view["created_at"].map(format_created)
     st.dataframe(
-        pd.DataFrame(users)[["username", "role", "is_active", "created_at"]],
+        users_view.rename(columns=USER_COLUMN_LABELS),
         hide_index=True,
         alt="Lista de usuários",
     )
