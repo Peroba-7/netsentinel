@@ -2,11 +2,11 @@
 
 from app.schemas.user import role_at_least
 
-# (ficheiro, título, ícone, perfil mínimo). A API aplica as mesmas regras nas rotas.
+# (arquivo, título, ícone, perfil mínimo). A API aplica as mesmas regras nas rotas.
 PAGES = [
     ("app_pages/history.py", "Histórico", ":material/monitoring:", "leitor"),
-    ("app_pages/submit.py", "Submeter incidente", ":material/add_alert:", "analista"),
-    ("app_pages/users.py", "Utilizadores", ":material/group:", "admin"),
+    ("app_pages/submit.py", "Enviar incidente", ":material/add_alert:", "analista"),
+    ("app_pages/users.py", "Usuários", ":material/group:", "admin"),
 ]
 
 

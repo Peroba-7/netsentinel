@@ -166,7 +166,7 @@ def test_submit_confirms_saved_incident(api):
     page.text_area[0].set_value("Tráfego anormal.")
     page.button[0].click().run()
 
-    assert "Incidente 1 guardado" in page.success[0].value
+    assert "Incidente 1 salvo" in page.success[0].value
 
 
 def test_history_shows_metrics(api):
@@ -501,14 +501,14 @@ def test_without_session_only_login_is_shown_and_no_data_is_loaded(api):
     app = open_dashboard()
 
     assert not app.exception
-    assert app.subheader[0].value == "Iniciar sessão"
+    assert app.subheader[0].value == "Entrar"
     assert api["calls"] == []
 
 
 def test_expired_session_goes_back_to_login(api):
     app = open_dashboard(session("admin", expires_at="2000-01-01T00:00:00+00:00"))
 
-    assert app.subheader[0].value == "Iniciar sessão"
+    assert app.subheader[0].value == "Entrar"
     assert api["calls"] == []
 
 
@@ -550,15 +550,15 @@ def test_logout_ends_session_in_api_and_dashboard(api):
 
     assert ("POST", "/auth/logout") in [call[:2] for call in api["calls"]]
     assert dashboard_api.AUTH_KEY not in app.session_state
-    assert app.subheader[0].value == "Iniciar sessão"
+    assert app.subheader[0].value == "Entrar"
 
 
 @pytest.mark.parametrize(
     "role,titles",
     [
         ("leitor", ["Histórico"]),
-        ("analista", ["Histórico", "Submeter incidente"]),
-        ("admin", ["Histórico", "Submeter incidente", "Utilizadores"]),
+        ("analista", ["Histórico", "Enviar incidente"]),
+        ("admin", ["Histórico", "Enviar incidente", "Usuários"]),
     ],
 )
 def test_menu_lists_only_the_pages_of_the_role(role, titles):
@@ -613,7 +613,7 @@ def test_expired_session_reported_by_api_returns_to_login(api):
     page = open_page("history.py", role="leitor")
 
     assert dashboard_api.AUTH_KEY not in page.session_state
-    assert "Inicie sessão" in page.info[0].value
+    assert "Faça login" in page.info[0].value
 
 
 def test_admin_sees_and_creates_users(api):

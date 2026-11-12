@@ -109,7 +109,7 @@ tests/               Testes automáticos
 
 ## Capturas de tela
 
-Os dados nas capturas são fictícios e usam IPs de documentação, como `203.0.113.x`, exceto o `8.8.8.8` (DNS público do Google), usado para mostrar o país e a organização do IP. A captura do perfil leitor é anterior à origem dos IPs, aos cabeçalhos das tabelas em português e às datas formatadas.
+Os dados nas capturas são fictícios e usam IPs de documentação, como `203.0.113.x`, exceto o `8.8.8.8` (DNS público do Google), usado para mostrar o país e a organização do IP. A captura do perfil leitor é anterior à origem dos IPs, aos cabeçalhos das tabelas em português e às datas formatadas. As capturas do dashboard são anteriores à tradução da interface para o português do Brasil e ainda mostram rótulos como "Iniciar sessão", "Submeter incidente" e "Utilizadores".
 
 ![Tela de login](docs/img/01-login.jpg)
 *Tela de login*
@@ -117,8 +117,8 @@ Os dados nas capturas são fictícios e usam IPs de documentação, como `203.0.
 ![Histórico com perfil admin](docs/img/02-historico.jpg)
 *Histórico com perfil admin*
 
-![Submeter incidente, com o resultado da análise e a origem do IP](docs/img/03-submeter.jpg)
-*Submeter incidente, com o resultado da análise e a origem do IP*
+![Enviar incidente, com o resultado da análise e a origem do IP](docs/img/03-submeter.jpg)
+*Enviar incidente, com o resultado da análise e a origem do IP*
 
 ![Resposta a incidentes e bloqueios ativos, com datas em UTC](docs/img/04-bloqueios.jpg)
 *Resposta a incidentes e bloqueios ativos, com datas em UTC*
@@ -144,7 +144,7 @@ As permissões são verificadas **na API**, em cada rota. O dashboard só escond
 | Retirar bloqueio | `DELETE /threats/block/{ip}` | ❌ | ❌ | ✅ |
 | Listar, criar e alterar usuários | `/users/` | ❌ | ❌ | ✅ |
 
-No dashboard, o menu mostra só as páginas do perfil: o leitor só consulta o histórico, sem menu de navegação; o analista vê "Histórico" e "Submeter incidente"; o admin também "Utilizadores". O sistema não permite retirar o último admin ativo.
+No dashboard, o menu mostra só as páginas do perfil: o leitor só consulta o histórico, sem menu de navegação; o analista vê "Histórico" e "Enviar incidente"; o admin também "Usuários". O sistema não permite retirar o último admin ativo.
 
 A **chave de serviço** (`API_KEY`, opcional) tem acesso de admin e serve para scripts. Só o contêiner da API a recebe.
 
@@ -206,7 +206,7 @@ O dashboard só abre com login. A senha (mínimo de 12 caracteres) é pedida no 
 docker exec -it netsentinel-api python -m app.cli create-user admin --role admin
 ```
 
-Os outros usuários são criados por esse admin, na página **Utilizadores** do dashboard. Para redefinir uma senha esquecida (encerra as sessões abertas dessa conta):
+Os outros usuários são criados por esse admin, na página **Usuários** do dashboard. Para redefinir uma senha esquecida (encerra as sessões abertas dessa conta):
 
 ```powershell
 docker exec -it netsentinel-api python -m app.cli set-password admin

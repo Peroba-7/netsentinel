@@ -18,7 +18,7 @@ AUTH_KEY = "auth"
 
 
 class ApiError(Exception):
-    """Falha ao comunicar com a API; a mensagem pode ser mostrada ao utilizador."""
+    """Falha ao se comunicar com a API; a mensagem pode ser mostrada ao usuário."""
 
 
 class SessionExpiredError(ApiError):
@@ -48,20 +48,20 @@ def clear_session() -> None:
 
 
 def require_role(minimum: str) -> dict:
-    """Pára a página se ninguém entrou ou se o perfil não chega. A API aplica a mesma regra;
-    isto só evita mostrar ecrãs que dariam erro."""
+    """Para a página se ninguém entrou ou se o perfil não basta. A API aplica a mesma regra;
+    isto só evita mostrar telas que dariam erro."""
     user = current_user()
     if user is None:
-        st.info("Inicie sessão para continuar.")
+        st.info("Faça login para continuar.")
         st.stop()
     if not role_at_least(user["role"], minimum):
-        st.error("O seu perfil não tem acesso a esta página.")
+        st.error("Seu perfil não tem acesso a esta página.")
         st.stop()
     return user
 
 
 def show_api_error(exc: ApiError, title: str) -> NoReturn:
-    """Mostra o erro e pára a página; com a sessão expirada, volta ao ecrã de login."""
+    """Mostra o erro e para a página; com a sessão expirada, volta para a tela de login."""
     if isinstance(exc, SessionExpiredError):
         st.rerun()
     st.error(str(exc), title=title)
@@ -73,14 +73,14 @@ def _request(method: str, path: str, timeout: float = 15, auth: bool = True, **k
     if auth:
         user = current_user()
         if user is None:
-            raise SessionExpiredError("Inicie sessão para continuar.")
+            raise SessionExpiredError("Faça login para continuar.")
         headers["Authorization"] = f"Bearer {user['token']}"
     try:
         response = requests.request(
             method, f"{settings.API_URL}{path}", headers=headers, timeout=timeout, **kwargs
         )
     except requests.RequestException as exc:
-        raise ApiError(f"Não foi possível ligar à API em {settings.API_URL}.") from exc
+        raise ApiError(f"Não foi possível conectar à API em {settings.API_URL}.") from exc
 
     if not response.ok:
         try:
@@ -88,7 +88,7 @@ def _request(method: str, path: str, timeout: float = 15, auth: bool = True, **k
         except (ValueError, AttributeError):
             detail = None
         if not isinstance(detail, str):
-            detail = f"A API devolveu o erro {response.status_code}."
+            detail = f"A API retornou o erro {response.status_code}."
         if auth and response.status_code == 401:
             clear_session()
             raise SessionExpiredError(detail)
@@ -97,7 +97,7 @@ def _request(method: str, path: str, timeout: float = 15, auth: bool = True, **k
 
 
 def login(username: str, password: str) -> dict:
-    """Inicia sessão e guarda-a no estado do Streamlit (só neste separador do navegador)."""
+    """Faz login e guarda a sessão no estado do Streamlit (só nesta aba do navegador)."""
     data = _request(
         "POST", "/auth/login", auth=False, json={"username": username, "password": password}
     )
@@ -106,7 +106,7 @@ def login(username: str, password: str) -> dict:
 
 
 def logout() -> None:
-    """Termina a sessão na API (o token deixa de valer) e esquece-a no dashboard."""
+    """Encerra a sessão na API (o token deixa de valer) e a esquece no dashboard."""
     try:
         _request("POST", "/auth/logout")
     except ApiError:

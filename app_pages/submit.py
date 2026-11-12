@@ -38,14 +38,14 @@ def find_problems(ip_address: str, description: str) -> list[str]:
 
 require_role("analista")
 
-st.subheader("Submeter novo incidente", anchor=False)
+st.subheader("Enviar novo incidente", anchor=False)
 
 # Sem placeholders: num campo vazio, parecem texto escrito e o envio era rejeitado.
 with st.form("threat_form", border=True):
     ip_address = st.text_input("Endereço IP (obrigatório)", help="Por exemplo: 203.0.113.7")
     threat_type = st.selectbox("Tipo de ameaça", THREAT_TYPES)
     description = st.text_area("Descrição do incidente (obrigatória)", max_chars=5000)
-    # Fica junto ao botão, para o aviso nunca aparecer fora do ecrã.
+    # Fica junto ao botão, para o aviso nunca aparecer fora da tela.
     feedback = st.container()
     submitted = st.form_submit_button("Executar análise", type="primary", icon=":material/search:")
 
@@ -60,13 +60,13 @@ if submitted:
         st.stop()
 
     try:
-        with st.spinner("A analisar o incidente. Pode demorar alguns minutos..."):
+        with st.spinner("Analisando o incidente. Pode levar alguns minutos..."):
             result = analyze_threat(ip_address, threat_type, description)
     except ApiError as exc:
         logger.warning("Análise falhou: %s", exc)
-        show_api_error(exc, "O incidente não foi guardado")
+        show_api_error(exc, "O incidente não foi salvo")
     else:
-        st.success(f"Incidente {result['id']} guardado.")
+        st.success(f"Incidente {result['id']} salvo.")
         with st.container(horizontal=True):
             st.metric("Nível de risco", result["risk_level"], border=True)
             st.metric("Estado", result["status"], border=True)

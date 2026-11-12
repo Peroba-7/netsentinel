@@ -1,4 +1,4 @@
-"""Textos da origem dos IPs, partilhados pelas páginas do dashboard."""
+"""Textos da origem dos IPs, compartilhados pelas páginas do dashboard."""
 
 # Atribuição exigida pela licença CC BY 4.0 do DB-IP Lite, onde os dados aparecem.
 DBIP_ATTRIBUTION = (

@@ -13,63 +13,63 @@ from dashboard_api import (
 
 me = require_role("admin")
 
-st.subheader("Utilizadores", anchor=False)
+st.subheader("Usuários", anchor=False)
 st.caption(
-    "leitor: consulta o histórico · analista: também submete incidentes e pede bloqueios · "
-    "admin: também retira bloqueios e gere utilizadores"
+    "leitor: consulta o histórico · analista: também envia incidentes e pede bloqueios · "
+    "admin: também retira bloqueios e gerencia usuários"
 )
 
 try:
     users = list_users()
 except ApiError as exc:
-    show_api_error(exc, "Não foi possível carregar os utilizadores")
+    show_api_error(exc, "Não foi possível carregar os usuários")
 
 if users:
     st.dataframe(
         pd.DataFrame(users)[["username", "role", "is_active", "created_at"]],
         hide_index=True,
-        alt="Lista de utilizadores",
+        alt="Lista de usuários",
     )
 
-create_tab, edit_tab = st.tabs(["Criar utilizador", "Alterar utilizador"])
+create_tab, edit_tab = st.tabs(["Criar usuário", "Alterar usuário"])
 
 with create_tab, st.form("create_user", border=True, clear_on_submit=True):
     username = st.text_input(
-        "Utilizador", help="3 a 50 letras minúsculas, números, '.', '_' ou '-'"
+        "Usuário", help="3 a 50 letras minúsculas, números, '.', '_' ou '-'"
     )
     role = st.selectbox("Perfil", ROLES)
     password = st.text_input(
-        f"Palavra-passe (mínimo {MIN_PASSWORD_LENGTH} caracteres)", type="password"
+        f"Senha (mínimo {MIN_PASSWORD_LENGTH} caracteres)", type="password"
     )
-    confirm = st.text_input("Repita a palavra-passe", type="password")
+    confirm = st.text_input("Repita a senha", type="password")
     feedback = st.container()
     if st.form_submit_button("Criar", type="primary", icon=":material/person_add:"):
         if password != confirm:
-            feedback.error("As palavras-passe não coincidem.")
+            feedback.error("As senhas não coincidem.")
         else:
             try:
                 created = create_user(username.strip().lower(), password, role)
             except ApiError as exc:
-                show_api_error(exc, "O utilizador não foi criado")
+                show_api_error(exc, "O usuário não foi criado")
             else:
-                st.toast(f"Utilizador {created['username']} criado.")
+                st.toast(f"Usuário {created['username']} criado.")
                 st.rerun()
 
 with edit_tab:
     if not users:
-        st.info("Ainda não existem utilizadores.")
+        st.info("Ainda não há usuários.")
     else:
         by_name = {user["username"]: user for user in users}
-        target = by_name[st.selectbox("Utilizador a alterar", list(by_name))]
+        target = by_name[st.selectbox("Usuário a alterar", list(by_name))]
         with st.form("edit_user", border=True, clear_on_submit=True):
             new_role = st.selectbox("Perfil", ROLES, index=ROLES.index(target["role"]))
             active = st.toggle("Conta ativa", value=target["is_active"])
             new_password = st.text_input(
-                "Nova palavra-passe (deixe vazio para manter)", type="password"
+                "Nova senha (deixe em branco para manter)", type="password"
             )
-            st.caption("Desativar a conta ou trocar a palavra-passe termina as sessões dela.")
+            st.caption("Desativar a conta ou trocar a senha encerra as sessões dela.")
             feedback = st.container()
-            if st.form_submit_button("Guardar", type="primary", icon=":material/save:"):
+            if st.form_submit_button("Salvar", type="primary", icon=":material/save:"):
                 changes = {}
                 if new_role != target["role"]:
                     changes["role"] = new_role
@@ -83,7 +83,7 @@ with edit_tab:
                     try:
                         update_user(target["id"], **changes)
                     except ApiError as exc:
-                        show_api_error(exc, "O utilizador não foi alterado")
+                        show_api_error(exc, "O usuário não foi alterado")
                     else:
-                        st.toast(f"Utilizador {target['username']} atualizado.")
+                        st.toast(f"Usuário {target['username']} atualizado.")
                         st.rerun()

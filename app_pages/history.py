@@ -99,7 +99,7 @@ def ip_block_label(threat: dict) -> str:
 
 
 user = require_role("leitor")
-# Só esconde os controlos; a API recusa estas ações a quem não tiver o perfil.
+# Só esconde os controles; a API recusa estas ações a quem não tiver o perfil.
 can_block = role_at_least(user["role"], "analista")
 can_unblock = role_at_least(user["role"], "admin")
 
@@ -112,7 +112,7 @@ except ApiError as exc:
     show_api_error(exc, "Não foi possível carregar o histórico")
 
 if not threats:
-    st.info("Ainda não existem incidentes registados.")
+    st.info("Ainda não há incidentes registrados.")
     st.stop()
 
 df = pd.DataFrame(threats)
@@ -157,7 +157,7 @@ by_type, by_risk = st.columns(2, border=True)
 with by_type:
     st.markdown("**Ameaças por tipo**")
     st.altair_chart(
-        # Agrupa também registos antigos gravados antes da normalização ("SSH Brute Force"...).
+        # Agrupa também registros antigos gravados antes da normalização ("SSH Brute Force"...).
         count_chart(df["threat_type"].map(normalize_threat_type).value_counts(), "Tipo"),
         width="stretch",
         alt="Número de incidentes por tipo de ameaça",
@@ -176,7 +176,7 @@ with by_risk:
 
 with st.sidebar:
     st.markdown("**Filtros dos incidentes**")
-    risk_filter = st.multiselect("Nível de risco", RISK_LEVELS)
+    risk_filter = st.multiselect("Nível de risco", RISK_LEVELS, placeholder="Escolha os níveis")
     text_filter = st.text_input("Pesquisar por IP, tipo ou descrição").strip()
 
 view = df
@@ -186,23 +186,23 @@ if text_filter:
     haystack = view[["ip_address", "threat_type", "description"]].fillna("").agg(" ".join, axis=1)
     view = view[haystack.str.contains(text_filter, case=False, regex=False)]
 
-st.subheader("Incidentes registados", anchor=False)
+st.subheader("Incidentes registrados", anchor=False)
 if len(view) != len(df):
-    st.caption(f"A mostrar {len(view)} de {len(df)} incidentes.")
+    st.caption(f"Mostrando {len(view)} de {len(df)} incidentes.")
 if view.empty:
     st.info("Nenhum incidente corresponde aos filtros.")
 else:
     st.dataframe(
         for_display(view),
         hide_index=True,
-        alt="Lista de incidentes registados",
+        alt="Lista de incidentes registrados",
         # Mais largura para o nome da organização não ficar cortado.
         column_config={"Organização": st.column_config.TextColumn(width="large")},
     )
 if has_origin_data(threats):
     st.caption(DBIP_ATTRIBUTION)
 st.download_button(
-    "Descarregar relatório (CSV)",
+    "Baixar relatório (CSV)",
     data=to_safe_csv(for_display(view)),
     file_name="netsentinel_relatorio.csv",
     mime="text/csv",
@@ -214,24 +214,24 @@ st.subheader("Resposta a incidentes", anchor=False)
 pending = [entry["ip_address"] for entry in blocked if not entry["dispatched"]]
 if pending:
     st.warning(
-        f"Registado, mas não enviado ao n8n: {', '.join(pending)}. "
-        "A firewall não foi alterada; selecione o IP para tentar de novo.",
-        title="Bloqueios por executar",
+        f"Registrado, mas não enviado ao n8n: {', '.join(pending)}. "
+        "O firewall não foi alterado; selecione o IP para tentar de novo.",
+        title="Bloqueios pendentes",
     )
 
 if any("simulado" in (entry["result"] or "") for entry in blocked):
     st.info(
-        "Os bloqueios marcados como simulados foram apenas registados.",
-        title="Modo de simulação: nenhuma firewall foi alterada",
+        "Os bloqueios marcados como simulados foram apenas registrados.",
+        title="Modo de simulação: nenhum firewall foi alterado",
     )
 
 dispatched = {entry["ip_address"] for entry in blocked if entry["dispatched"]}
 candidates = [ip for ip in df["ip_address"].unique() if ip not in dispatched]
 
 if not can_block:
-    st.caption("O seu perfil (leitor) permite consultar, mas não pedir bloqueios.")
+    st.caption("Seu perfil (leitor) permite consultar, mas não pedir bloqueios.")
 elif not candidates:
-    st.info("Todos os IPs registados já têm um pedido de bloqueio enviado.")
+    st.info("Todos os IPs registrados já têm um pedido de bloqueio enviado.")
 else:
     selected_ip = st.selectbox("IP a bloquear", candidates)
     duration = st.selectbox(
@@ -246,12 +246,12 @@ else:
                 selected_ip, block_reason(df, selected_ip), BLOCK_DURATIONS[duration]
             )
         except ApiError as exc:
-            show_api_error(exc, "Não foi possível registar o bloqueio")
+            show_api_error(exc, "Não foi possível registrar o bloqueio")
         else:
             if result["dispatched"]:
                 st.toast(f"{selected_ip}: {result['result']}")
             else:
-                st.toast(f"{selected_ip} registado, mas o n8n não aceitou o pedido.")
+                st.toast(f"{selected_ip} registrado, mas o n8n não aceitou o pedido.")
             st.rerun()
 
 if blocked:

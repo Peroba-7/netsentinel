@@ -9,9 +9,9 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 
 st.set_page_config(page_title="NetSentinel", page_icon=":material/shield:", layout="wide")
 
-# O Streamlit declara lang="en", e o navegador oferece-se para traduzir o texto em português.
+# O Streamlit declara lang="en", e o navegador se oferece para traduzir o texto em português.
 st.html(
-    "<script>document.documentElement.lang='pt';"
+    "<script>document.documentElement.lang='pt-BR';"
     "document.documentElement.translate=false;</script>",
     unsafe_allow_javascript=True,
 )
@@ -19,7 +19,7 @@ st.html(
 user = current_user()
 
 if user is None:
-    # Sem sessão só existe o ecrã de login: nenhuma página com dados é sequer registada.
+    # Sem sessão só existe a tela de login: nenhuma página com dados é sequer registrada.
     page = st.navigation(
         [st.Page("app_pages/login.py", title="Entrar", icon=":material/login:")],
         position="hidden",
