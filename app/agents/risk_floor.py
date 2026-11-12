@@ -6,7 +6,7 @@ manipulado pelo texto do incidente. As regras só sobem o nível, nunca o baixam
 
 Os sinais reconhecem termos de Portugal e do Brasil. São de alta precisão: regras de CRÍTICO
 exigem dois ou mais sinais na mesma frase, e há exceções para negação e origem conhecida.
-O campo "Tipo" não é usado, porque é só a suspeita de quem registou o incidente.
+O campo "Tipo" não é usado, porque é só a suspeita de quem registrou o incidente.
 """
 
 import re
@@ -27,7 +27,7 @@ _NEGATIONS = {
 }
 _NEGATION_WINDOW = 4  # palavras antes do sinal
 
-# Números como 650, 1.200, 1 200 ou 1200; não apanha partes de um endereço IP.
+# Números como 650, 1.200, 1 200 ou 1200; não pega partes de um endereço IP.
 _NUMBER = r"(?<![\d.])(\d{1,3}(?:[. ]\d{3})+|\d+)(?![\d]|\.\d)"
 _COUNT = re.compile(
     _NUMBER + r"\s+(?:[a-z-]+\s+){0,3}?"
@@ -65,7 +65,7 @@ _ATTACKER_ACTION = re.compile(
     r"|desativ(?:ou|aram)\s+(?:o\s+|a\s+|os\s+)?(?:antivirus|edr|auditoria|registos?|registros?|logs?)"
     r"|apag(?:ou|aram)\s+(?:os\s+)?(?:logs|registos|registros))"
 )
-# Sem um destes, criar utilizadores ou mudar permissões é trabalho normal de administração.
+# Sem um destes, criar usuários ou mudar permissões é trabalho normal de administração.
 _SUSPICIOUS_ORIGIN = re.compile(
     r"\b(?:atacante|invasor|intruso|hacker|desconhecid[oa]s?|estrangeir[oa]s?|"
     r"nao\s+autorizad[oa]s?|sem\s+autorizacao|comprometid[oa]s?|malicios[oa]s?)\b"
@@ -217,7 +217,7 @@ def find_signals(description: str) -> tuple[Signal, ...]:
 
 
 def apply_risk_floor(description: str, risk_level: str) -> FloorResult:
-    """Sobe o nível até ao mínimo exigido pelos sinais; nunca o baixa."""
+    """Sobe o nível até o mínimo exigido pelos sinais; nunca o baixa."""
     signals = find_signals(description)
     final = risk_level
     if signals:
