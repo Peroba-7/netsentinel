@@ -239,14 +239,22 @@ if not can_block:
 elif not candidates:
     st.info("Todos os IPs registrados já têm um pedido de bloqueio enviado.")
 else:
-    selected_ip = st.selectbox("IP a bloquear", candidates)
+    # Começa em branco: o bloqueio só é pedido para um IP escolhido de propósito.
+    selected_ip = st.selectbox(
+        "IP a bloquear", candidates, index=None, placeholder="Selecione um IP"
+    )
     duration = st.selectbox(
         "Duração do bloqueio",
         list(BLOCK_DURATIONS),
         index=list(BLOCK_DURATIONS).index("Permanente"),
         help="No fim do prazo, o IP é desbloqueado automaticamente.",
     )
-    if st.button("Pedir bloqueio", type="primary", icon=":material/block:"):
+    if st.button(
+        "Pedir bloqueio",
+        type="primary",
+        icon=":material/block:",
+        disabled=selected_ip is None,
+    ):
         try:
             result = block_ip(
                 selected_ip, block_reason(df, selected_ip), BLOCK_DURATIONS[duration]

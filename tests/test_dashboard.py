@@ -241,8 +241,28 @@ def test_history_flags_simulated_blocks(api):
     assert "simulados" in page.info[0].value
 
 
-def test_history_requests_block(api):
+def choose_ip_to_block(page, ip_address="10.0.0.1"):
+    next(box for box in page.selectbox if box.label == "IP a bloquear").set_value(ip_address).run()
+    return page
+
+
+def test_history_ip_to_block_starts_empty_and_button_is_disabled(api):
     page = open_page("history.py")
+
+    ip_box = next(box for box in page.selectbox if box.label == "IP a bloquear")
+    assert ip_box.value is None
+    assert ip_box.placeholder == "Selecione um IP"
+    assert ip_box.options == ["10.0.0.1"]
+    # Desativado: o AppTest, como o navegador, nem deixa clicar.
+    assert next(b for b in page.button if b.label == "Pedir bloqueio").disabled
+    assert ("POST", "/threats/block") not in [call[:2] for call in api["calls"]]
+
+    choose_ip_to_block(page)
+    assert not next(b for b in page.button if b.label == "Pedir bloqueio").disabled
+
+
+def test_history_requests_block(api):
+    page = choose_ip_to_block(open_page("history.py"))
     page.button[0].click().run()
 
     assert not page.exception
@@ -262,6 +282,7 @@ def test_history_sends_chosen_block_duration(api, label, minutes):
     assert duration.options == ["30 min", "1 hora", "24 horas", "Permanente"]
     assert duration.value == "Permanente"
     duration.set_value(label).run()
+    choose_ip_to_block(page)
     page.button[0].click().run()
 
     block_call = next(call for call in api["calls"] if call[:2] == ("POST", "/threats/block"))
@@ -383,7 +404,7 @@ def test_history_block_reason_uses_latest_incident_of_ip(api):
     newer = {**THREAT, "id": 2, "threat_type": "Port Scan", "risk_level": "CRÍTICO"}
     api["routes"][("GET", "/threats/")] = FakeResponse([newer, older])
 
-    page = open_page("history.py")
+    page = choose_ip_to_block(open_page("history.py"))
     page.button[0].click().run()
 
     block_call = next(call for call in api["calls"] if call[:2] == ("POST", "/threats/block"))
