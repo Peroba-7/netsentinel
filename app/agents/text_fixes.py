@@ -2,7 +2,7 @@
 
 import re
 
-# "IP" é masculino em português europeu; o modelo às vezes escreve-o no feminino.
+# "IP" é masculino em português; o modelo às vezes o escreve no feminino.
 _IP_GENDER = {
     "a": "o",
     "da": "do",

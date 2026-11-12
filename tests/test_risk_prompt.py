@@ -134,7 +134,8 @@ def test_few_shot_examples_differ_from_eval_cases():
 
 
 def test_prompt_asks_for_european_portuguese_with_masculine_ip():
-    assert "português europeu" in SYSTEM_PROMPT
+    assert "português do Brasil" in SYSTEM_PROMPT
+    assert "português europeu" not in SYSTEM_PROMPT
     assert '"o IP"' in SYSTEM_PROMPT and '"o endereço IP"' in SYSTEM_PROMPT
     assert 'nunca "a IP"' in SYSTEM_PROMPT
 
