@@ -109,7 +109,7 @@ tests/               Testes automáticos
 
 ## Capturas de tela
 
-Os dados nas capturas são fictícios e usam IPs de documentação, como `203.0.113.x`, exceto o `8.8.8.8` (DNS público do Google), usado para mostrar o país e a organização do IP. A captura do perfil leitor é anterior à origem dos IPs, aos cabeçalhos das tabelas em português e às datas formatadas. As capturas do dashboard são anteriores à tradução da interface para o português do Brasil e ainda mostram rótulos como "Iniciar sessão", "Submeter incidente" e "Utilizadores".
+Os dados nas capturas são fictícios e usam IPs de documentação, como `203.0.113.x`, exceto o `8.8.8.8` (DNS público do Google), usado para mostrar o país e a organização do IP.
 
 ![Tela de login](docs/img/01-login.jpg)
 *Tela de login*
@@ -117,7 +117,7 @@ Os dados nas capturas são fictícios e usam IPs de documentação, como `203.0.
 ![Histórico com perfil admin](docs/img/02-historico.jpg)
 *Histórico com perfil admin*
 
-![Enviar incidente, com o resultado da análise e a origem do IP](docs/img/03-submeter.jpg)
+![Enviar incidente, com o resultado da análise e a origem do IP](docs/img/03-enviar.jpg)
 *Enviar incidente, com o resultado da análise e a origem do IP*
 
 ![Resposta a incidentes e bloqueios ativos, com datas em UTC](docs/img/04-bloqueios.jpg)
@@ -126,7 +126,7 @@ Os dados nas capturas são fictícios e usam IPs de documentação, como `203.0.
 ![Histórico com perfil leitor, sem menu de navegação](docs/img/05-leitor.jpg)
 *Histórico com perfil leitor, sem menu de navegação*
 
-![Gerenciamento de usuários](docs/img/06-utilizadores.jpg)
+![Gerenciamento de usuários](docs/img/06-usuarios.jpg)
 *Gerenciamento de usuários*
 
 ![Documentação da API no Swagger](docs/img/07-swagger.jpg)
